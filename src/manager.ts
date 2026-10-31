@@ -1,7 +1,8 @@
 import type { CredentialStore } from "./auth.ts";
+import { createHash, randomBytes } from "node:crypto";
 import { ConfigError } from "./core/errors.ts";
 import type { Hub } from "./core/hub.ts";
-import { PanelStore } from "./core/panel-store.ts";
+import { PanelStore, type AppKeyRow } from "./core/panel-store.ts";
 import { getPlugin, listPlugins, type Plugin, type PluginContext } from "./core/registry.ts";
 import { MIN_SECRETS_KEY_LENGTH, SecretBox } from "./core/secrets.ts";
 import type { Adapter, Limits, Route, Source, Strategy } from "./core/types.ts";
@@ -52,6 +53,7 @@ interface RouteSpec {
   strategy: Strategy;
   maxAttempts: number;
   source: Source;
+  cacheSeconds: number;
   providers: ProviderSpec[];
 }
 
@@ -64,6 +66,7 @@ const MAX_OPTION_CHARS = 1000;
 const MAX_LIMIT = 1_000_000_000;
 const MAX_ROUTES = 50;
 const MAX_PROVIDERS = 100;
+const MAX_APP_KEYS = 50;
 const KEY_CHECK = "revezo-secrets-check";
 
 /**
@@ -73,6 +76,7 @@ const KEY_CHECK = "revezo-secrets-check";
 export class Manager implements CredentialStore {
   #hub: Hub;
   #memoryCredentials?: { user: string; hash: string };
+  #appKeys = new Map<string, AppKeyRow>(); // by hash
   #ctx: PluginContext;
   #routes = new Map<string, RouteSpec>();
   #settings = new Map<string, unknown>();
@@ -94,6 +98,7 @@ export class Manager implements CredentialStore {
         strategy: r.strategy,
         maxAttempts: r.maxAttempts,
         source: "file",
+        cacheSeconds: r.cacheSeconds ?? 0,
         providers: r.providers.map((p) => ({
           name: p.name,
           use: p.adapter.id,
@@ -121,6 +126,7 @@ export class Manager implements CredentialStore {
           this.#box = this.#openBox(this.#store, opts.secretsKey);
         }
         this.#loadSaved(this.#store);
+        for (const k of this.#store.appKeys()) this.#appKeys.set(k.hash, k);
       } catch (err) {
         this.#store.close();
         throw err;
@@ -162,6 +168,16 @@ export class Manager implements CredentialStore {
     return {
       writable: this.writable,
       reason: this.readOnlyReason ?? null,
+      appKeys: await Promise.all(
+        [...this.#appKeys.values()].map(async (k) => ({
+          id: k.id,
+          name: k.name,
+          prefix: k.prefix,
+          perDay: k.perDay,
+          createdAt: new Date(k.createdAt).toISOString(),
+          usage: await this.#hub.usageOf(appCounter(k.id)),
+        })),
+      ),
       warnings: this.warnings,
       plugins: listPlugins()
         .filter((p) => p.fields)
@@ -202,7 +218,7 @@ export class Manager implements CredentialStore {
       this.#store!.putRoute(row);
       this.#store!.setSetting(`strategy:${name}`, undefined);
     });
-    this.#routes.set(name, { ...row, source: "panel", providers: [] });
+    this.#routes.set(name, { ...row, source: "panel", cacheSeconds: 0, providers: [] });
     this.#settings.delete(`strategy:${name}`);
     this.#apply();
   }
@@ -211,8 +227,15 @@ export class Manager implements CredentialStore {
   updateRoute(name: string, input: unknown): void {
     this.#assertWritable();
     const route = this.#route(name);
-    const body = object(input, ["strategy", "order"]);
+    const body = object(input, ["strategy", "order", "cacheSeconds"]);
     const changes: [string, unknown][] = [];
+    if (body.cacheSeconds !== undefined) {
+      const s = body.cacheSeconds;
+      if (typeof s !== "number" || !Number.isInteger(s) || s < 0 || s > 86_400) {
+        throw new ManageError(400, "invalid_cache", "cacheSeconds must be a whole number from 0 to 86400");
+      }
+      changes.push([`cache:${name}`, s]);
+    }
     if (body.strategy !== undefined) changes.push([`strategy:${name}`, validStrategy(body.strategy)]);
     if (body.order !== undefined) {
       const names = route.providers.map((p) => p.name);
@@ -225,6 +248,41 @@ export class Manager implements CredentialStore {
     this.#saveSettings(changes);
   }
 
+  /** Creates a key for one app. The key is returned only here; only its hash is stored. */
+  createAppKey(input: unknown): { id: string; name: string; key: string } {
+    this.#assertWritable();
+    const body = object(input, ["name", "perDay"]);
+    const name = validName(body.name, "key");
+    const keys = [...this.#appKeys.values()];
+    if (keys.some((k) => k.name === name)) throw new ManageError(409, "duplicate_name", `A key called "${name}" already exists`);
+    if (keys.length >= MAX_APP_KEYS) throw new ManageError(409, "too_many", `At most ${MAX_APP_KEYS} app keys`);
+    let perDay: number | null = null;
+    if (body.perDay !== undefined && body.perDay !== null) {
+      const v = body.perDay;
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > MAX_LIMIT) throw new ManageError(400, "invalid_limits", `perDay must be a whole number from 1 to ${MAX_LIMIT}`);
+      perDay = v;
+    }
+    const key = `rvz_${randomBytes(24).toString("base64url")}`;
+    const row: AppKeyRow = { id: randomBytes(8).toString("hex"), name, hash: hashKey(key), prefix: key.slice(0, 10), perDay, createdAt: Date.now() };
+    this.#store!.putAppKey(row);
+    this.#appKeys.set(row.hash, row);
+    return { id: row.id, name, key };
+  }
+
+  removeAppKey(id: string): void {
+    this.#assertWritable();
+    const row = [...this.#appKeys.values()].find((k) => k.id === id) ?? notFound("key", id);
+    this.#store!.deleteAppKey(id);
+    this.#appKeys.delete(row.hash);
+  }
+
+  /** The app a key belongs to, or undefined. */
+  findAppKey(key: string): { id: string; name: string; perDay: number | null } | undefined {
+    if (!key.startsWith("rvz_")) return undefined;
+    const row = this.#appKeys.get(hashKey(key));
+    return row && { id: row.id, name: row.name, perDay: row.perDay };
+  }
+
   removeRoute(name: string): void {
     this.#assertWritable();
     const route = this.#route(name);
@@ -234,8 +292,10 @@ export class Manager implements CredentialStore {
       this.#store!.deleteRoute(name);
       this.#store!.setSetting(`strategy:${name}`, undefined);
       this.#store!.setSetting(`order:${name}`, undefined);
+      this.#store!.setSetting(`cache:${name}`, undefined);
     });
     this.#routes.delete(name);
+    this.#settings.delete(`cache:${name}`);
     this.#settings.delete(`strategy:${name}`);
     this.#settings.delete(`order:${name}`);
     this.#apply();
@@ -342,6 +402,7 @@ export class Manager implements CredentialStore {
         strategy: STRATEGIES.includes(strategy as Strategy) ? (strategy as Strategy) : spec.strategy,
         maxAttempts: spec.maxAttempts,
         source: spec.source,
+        cacheSeconds: typeof this.#settings.get(`cache:${spec.name}`) === "number" ? (this.#settings.get(`cache:${spec.name}`) as number) : spec.cacheSeconds,
         providers: spec.providers
           .map((p, i) => ({ p, i }))
           .sort((a, b) => position(a.p.name) - position(b.p.name) || a.i - b.i)
@@ -383,7 +444,7 @@ export class Manager implements CredentialStore {
         this.warnings.push(`Route "${r.name}" saved on the dashboard is now also in the config file; the file wins.`);
         continue;
       }
-      this.#routes.set(r.name, { ...r, source: "panel", providers: [] });
+      this.#routes.set(r.name, { ...r, source: "panel", cacheSeconds: 0, providers: [] });
     }
     const saved = store.providers();
     if (saved.length && !this.#box) {
@@ -451,6 +512,9 @@ export class Manager implements CredentialStore {
 }
 
 const aad = (name: string) => `provider:${name}`;
+const hashKey = (key: string) => createHash("sha256").update(key).digest("hex");
+/** Quota counter name of an app key. */
+export const appCounter = (id: string) => `app:${id}`;
 
 function notFound(what: string, name: string): never {
   throw new ManageError(404, `unknown_${what}`, `No ${what} called "${String(name).slice(0, 48)}"`);

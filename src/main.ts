@@ -23,15 +23,17 @@ try {
   if (apiKey && apiKey.length < MIN_KEY_LENGTH) {
     throw new ConfigError(`REVEZO_API_KEY must have at least ${MIN_KEY_LENGTH} characters. Generate one with: node -e "console.log(crypto.randomUUID()+crypto.randomUUID())"`);
   }
-  const events = new EventLog();
+  // Replaced below by one that also writes to storage.sqlite, once the config says where it is.
+  let events = new EventLog();
   const config = loadConfigFile(process.env.REVEZO_CONFIG || "revezo.config.yaml", {
     hubOptions: {
-      onAttempt: (route, a) => {
-        events.add(route, a);
-        log("attempt", { route, ...a });
+      onAttempt: (route, a, app) => {
+        events.add(route, a, new Date(), app);
+        log("attempt", { route, ...a, ...(app ? { app } : {}) });
       },
     },
   });
+  events = new EventLog(200, config.storagePath);
   if (!apiKey && config.server.host !== "127.0.0.1" && config.server.host !== "localhost") {
     throw new ConfigError("Without REVEZO_API_KEY the server may only listen on 127.0.0.1.");
   }

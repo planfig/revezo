@@ -130,7 +130,11 @@ function buildRoute(
 
   const maxAttempts = Number(r.maxAttempts ?? 3);
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) throw new ConfigError(`${where}.maxAttempts must be a whole number ≥ 1`);
-  return { name: routeName, kind, strategy, providers, maxAttempts, source: "file" };
+  const cacheSeconds = Number(r.cacheSeconds ?? 0);
+  if (!Number.isInteger(cacheSeconds) || cacheSeconds < 0 || cacheSeconds > 86_400) {
+    throw new ConfigError(`${where}.cacheSeconds must be a whole number from 0 to 86400`);
+  }
+  return { name: routeName, kind, strategy, providers, maxAttempts, source: "file", cacheSeconds };
 }
 
 function parseLimits(raw: unknown, at: string): Limits {

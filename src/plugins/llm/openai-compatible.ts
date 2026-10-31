@@ -57,6 +57,8 @@ export function openAiCompatible(spec: Spec): Plugin {
         classifyError(err) {
           return err instanceof ProviderError ? err.kind : "temporary";
         },
+        meterUnits: ["tokens"],
+        meters: (res) => ({ tokens: res.usage?.total_tokens ?? (res.usage?.prompt_tokens ?? 0) + (res.usage?.completion_tokens ?? 0) }),
       };
     },
   };

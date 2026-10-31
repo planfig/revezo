@@ -82,10 +82,25 @@ export function dashboardHtml(nonce: string): string {
       </form>
       <p id="addMsg" aria-live="polite"></p>
     </section>
+    <section class="card" id="keysCard">
+      <h2 data-t="keysTitle"></h2>
+      <p class="muted" data-t="keysHelp"></p>
+      <div id="keys"></div>
+      <div class="notice" id="newKey" hidden>
+        <p id="newKeyText"></p>
+        <div class="row"><input id="newKeyValue" readonly aria-label="key"><button type="button" id="copyKey" data-t="copy"></button><button type="button" class="ghost" id="hideKey">OK</button></div>
+      </div>
+      <form id="keyForm" autocomplete="off">
+        <label><span data-t="keyName"></span><input id="keyName" required maxlength="48" pattern="[A-Za-z0-9][A-Za-z0-9_.\\-]{0,47}"></label>
+        <label><span data-t="keyPerDay"></span><input id="keyPerDay" type="number" min="1" step="1"></label>
+        <button type="submit" data-t="createKey"></button>
+      </form>
+      <p id="keyMsg" aria-live="polite"></p>
+    </section>
     <section class="card" id="routeCard">
       <h2 data-t="newRouteTitle"></h2>
       <form id="routeForm" autocomplete="off">
-        <label><span data-t="name"></span><input id="routeName" required maxlength="48" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,47}"></label>
+        <label><span data-t="routeNameLabel"></span><input id="routeName" required maxlength="48" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,47}"></label>
         <label><span data-t="kind"></span><select id="routeKind" required></select></label>
         <label><span data-t="strategy"></span><select id="routeStrategy"></select></label>
         <button type="submit" data-t="create"></button>
@@ -95,7 +110,7 @@ export function dashboardHtml(nonce: string): string {
     <section class="card">
       <h2 data-t="recent"></h2>
       <div class="table"><table>
-        <thead><tr><th data-t="time"></th><th data-t="route"></th><th data-t="provider"></th><th data-t="result"></th><th data-t="detail"></th></tr></thead>
+        <thead><tr><th data-t="time"></th><th data-t="route"></th><th data-t="provider"></th><th data-t="app"></th><th data-t="result"></th><th data-t="detail"></th></tr></thead>
         <tbody id="events"></tbody>
       </table></div>
     </section>

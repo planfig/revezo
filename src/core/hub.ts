@@ -1,6 +1,6 @@
 import { NoProviderAvailableError, PermanentFailureError, ProviderError } from "./errors.ts";
 import { limitFor, nextReset, type QuotaStore } from "./quota.ts";
-import { WINDOWS, type Attempt, type ErrorKind, type ProviderEntry, type Route, type SendResult, type Usage } from "./types.ts";
+import { WINDOWS, type Attempt, type ErrorKind, type Limits, type ProviderEntry, type Route, type SendResult, type Usage } from "./types.ts";
 
 export interface HubOptions {
   store: QuotaStore;
@@ -8,13 +8,15 @@ export interface HubOptions {
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
   /** Called after every attempt; never receives message content. */
-  onAttempt?: (route: string, attempt: Attempt) => void;
+  onAttempt?: (route: string, attempt: Attempt, app?: string) => void;
 }
 
 export interface SendOptions {
   /** Only use providers whose capabilities match all of these, e.g. { allowsMarketing: true }. */
   requires?: Record<string, unknown>;
   signal?: AbortSignal;
+  /** Name of the app key making the call, passed on to onAttempt. */
+  app?: string;
 }
 
 const RATE_LIMIT_PAUSE_MS = 60_000;
@@ -66,7 +68,7 @@ export class Hub {
     const attempts: Attempt[] = [];
     const record = (a: Attempt) => {
       attempts.push(a);
-      this.#onAttempt?.(route.name, a);
+      this.#onAttempt?.(route.name, a, opts.app);
     };
 
     for (const entry of await this.#order(route)) {
@@ -95,6 +97,7 @@ export class Hub {
         try {
           const result = (await entry.adapter.send(req, { attempt, signal: opts.signal })) as Res;
           record({ provider: entry.name, outcome: "sent" });
+          await this.#count(entry, result, now);
           return { route: route.name, provider: entry.name, result, attempts };
         } catch (err) {
           const kind = classify(entry, err);
@@ -114,6 +117,27 @@ export class Hub {
     throw new NoProviderAvailableError(route.name, attempts);
   }
 
+  /** Extra counters reported by the adapter, e.g. tokens used. Only counted, never limited. */
+  async #count(entry: ProviderEntry, result: unknown, now: Date) {
+    try {
+      const meters = entry.adapter.meters?.(result) ?? {};
+      for (const [unit, n] of Object.entries(meters)) {
+        if (Number.isFinite(n) && n > 0) await this.#store.tryReserve(`${entry.name}#${unit}`, {}, n, now, this.#timeZone);
+      }
+    } catch {
+      // Counting is informative; it must never fail a send that went through.
+    }
+  }
+
+  /** Counts one use against a named counter with limits (e.g. an app key); false when full. */
+  async reserve(name: string, limits: Limits, amount = 1): Promise<boolean> {
+    return (await this.#store.tryReserve(name, limits, amount, this.#now(), this.#timeZone)) !== null;
+  }
+
+  usageOf(name: string): Promise<Usage> {
+    return this.#store.usage(name, this.#now(), this.#timeZone);
+  }
+
   /** Current usage, limits and blocks for every provider of every route. */
   async status() {
     const now = this.#now();
@@ -123,6 +147,7 @@ export class Hub {
         kind: route.kind,
         strategy: route.strategy,
         source: route.source ?? "file",
+        cacheSeconds: route.cacheSeconds ?? 0,
         providers: await Promise.all(
           route.providers.map(async (p) => ({
             name: p.name,
@@ -133,6 +158,9 @@ export class Hub {
             capabilities: p.adapter.capabilities,
             limits: p.limits,
             usage: await this.#store.usage(p.name, now, this.#timeZone),
+            meters: Object.fromEntries(
+              await Promise.all((p.adapter.meterUnits ?? []).map(async (u) => [u, await this.#store.usage(`${p.name}#${u}`, now, this.#timeZone)])),
+            ) as Record<string, Usage>,
             blocked: await this.#store.blocked(p.name, now),
           })),
         ),

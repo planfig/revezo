@@ -28,6 +28,10 @@ export interface Adapter<Req = unknown, Res = unknown> {
   cost(req: Req): Cost;
   send(req: Req, ctx: SendContext): Promise<Res>;
   classifyError(err: unknown): ErrorKind;
+  /** Extra counters per successful call, e.g. { tokens: 1234 }. Shown, not limited. */
+  meters?(res: Res): Record<string, number>;
+  /** Units meters() reports, so the dashboard can show them before the first call. */
+  meterUnits?: string[];
 }
 
 export const WINDOWS = ["minute", "hour", "day", "month"] as const;
@@ -67,6 +71,8 @@ export interface Route {
   /** Same-provider retries for temporary errors. */
   maxAttempts: number;
   source?: Source;
+  /** Seconds an identical AI request is answered from the cache; 0 or missing turns it off. */
+  cacheSeconds?: number;
 }
 
 export type AttemptOutcome =
@@ -75,6 +81,7 @@ export type AttemptOutcome =
   | "skipped_blocked"
   | "skipped_capability"
   | "skipped_paused"
+  | "cached"
   | "failed";
 
 export interface Attempt {

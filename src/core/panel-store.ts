@@ -19,6 +19,17 @@ export interface PanelProviderRow {
   options: string;
 }
 
+/** A key given to one app. Only its SHA-256 hash is kept. */
+export interface AppKeyRow {
+  id: string;
+  name: string;
+  hash: string;
+  /** First characters, shown so the owner can tell keys apart. */
+  prefix: string;
+  perDay: number | null;
+  createdAt: number;
+}
+
 /**
  * Routes, providers and settings changed on the dashboard, kept in the same SQLite file as
  * the quota counters (in tables of their own).
@@ -39,6 +50,9 @@ export class PanelStore {
         name TEXT PRIMARY KEY, route TEXT NOT NULL, use TEXT NOT NULL, limits TEXT NOT NULL, weight REAL NOT NULL,
         capabilities TEXT, options TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS panel_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS panel_keys (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL,
+        per_day INTEGER, created_at INTEGER NOT NULL);
     `);
   }
 
@@ -101,6 +115,25 @@ export class PanelStore {
 
   deleteProvider(name: string): void {
     this.#db.prepare("DELETE FROM panel_providers WHERE name = ?").run(name);
+  }
+
+  appKeys(): AppKeyRow[] {
+    return (this.#db.prepare("SELECT * FROM panel_keys ORDER BY created_at, name").all() as any[]).map((r) => ({
+      id: r.id,
+      name: r.name,
+      hash: r.hash,
+      prefix: r.prefix,
+      perDay: r.per_day === null ? null : Number(r.per_day),
+      createdAt: Number(r.created_at),
+    }));
+  }
+
+  putAppKey(k: AppKeyRow): void {
+    this.#db.prepare("INSERT INTO panel_keys (id, name, hash, prefix, per_day, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(k.id, k.name, k.hash, k.prefix, k.perDay, k.createdAt);
+  }
+
+  deleteAppKey(id: string): void {
+    this.#db.prepare("DELETE FROM panel_keys WHERE id = ?").run(id);
   }
 
   /** Stores a setting; undefined removes it. */

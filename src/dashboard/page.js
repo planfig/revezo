@@ -20,7 +20,14 @@
       offline: "Could not reach the server.", today: "Today", month: "Month", noLimit: "no limit",
       st_ok: "free", st_high: "almost full", st_full: "full", st_blocked: "paused by errors until {until}", st_user: "paused by you",
       sent: "sent", skipped_full: "skipped: full", skipped_blocked: "skipped: paused (errors)", skipped_capability: "skipped: not allowed",
-      skipped_paused: "skipped: paused by you", failed: "failed", none: "No attempts yet.",
+      skipped_paused: "skipped: paused by you", failed: "failed", cached: "answered from cache", none: "No attempts yet.", app: "App",
+      cache: "Cache", cacheOff: "no cache", cache60: "1 minute", cache600: "10 minutes", cache3600: "1 hour", cache86400: "24 hours",
+      tokensToday: "tokens today", tok: "tok",
+      keysTitle: "App keys", keysHelp: "Give each app (website, bot, booking system…) its own key with a daily limit. App keys can only send; the dashboard and settings stay with you.",
+      keyName: "App name", keyPerDay: "Calls per day (empty = no limit)", createKey: "Create key", noKeys: "No app keys yet.",
+      keyCreated: "Key for {name}. Copy it now: it will not be shown again.", copy: "Copy", copied: "Copied.",
+      revoke: "Revoke", confirmRevoke: "Revoke the key of {name}? That app stops working until it gets a new key.",
+      keyUsage: "{used} calls today", keyUsageLimit: "{used} / {limit} calls today",
       legOk: "free", legHigh: "80% or more of the limit", legFull: "full or paused by errors", legUser: "paused by you",
       noProviders: "no providers yet", sectorsNav: "Sectors", vstats: "{routes} routes · {apis} APIs · {sent} sent today", vstats1: "1 route · {apis} APIs · {sent} sent today", sentToday: "{n} sent today",
       soonTitle: "No APIs in this sector yet", soonText: "Coming in a future version.",
@@ -34,7 +41,7 @@
       marketing: "Allows marketing e-mails", keysSaved: "keys", saved: "saved", missing: "missing",
       confirmRemove: "Remove {name}? Its saved keys are deleted.", confirmRemoveRoute: "Remove route {name}?",
       addTitle: "Add an API", addHelp: "Keys are stored encrypted and never shown again. The hub starts using the new API on the next call.",
-      type: "Type", name: "Name (optional)", add: "Add", newRouteTitle: "New route", create: "Create",
+      type: "Type", name: "Name (optional)", routeNameLabel: "Route name", add: "Add", newRouteTitle: "New route", create: "Create",
       done: "Done.", added: "{name} added. The hub is already using it.", ro_memory_storage: "Read only: counters are kept in memory. Set storage.sqlite in revezo.config.yaml to manage APIs here.",
       ro_no_secrets_key: "Read only: REVEZO_SECRETS_KEY is not set. It encrypts the API keys you add here. Add it to .env and restart.",
       ro_no_api_key: "Read only: the server runs without REVEZO_API_KEY.",
@@ -56,7 +63,14 @@
       offline: "Não foi possível falar com o servidor.", today: "Hoje", month: "Mês", noLimit: "sem limite",
       st_ok: "livre", st_high: "quase cheio", st_full: "cheio", st_blocked: "pausado por erro até {until}", st_user: "pausado por você",
       sent: "enviado", skipped_full: "pulado: cheio", skipped_blocked: "pulado: pausado (erro)", skipped_capability: "pulado: não permitido",
-      skipped_paused: "pulado: pausado por você", failed: "falhou", none: "Nenhuma tentativa ainda.",
+      skipped_paused: "pulado: pausado por você", failed: "falhou", cached: "respondido do cache", none: "Nenhuma tentativa ainda.", app: "App",
+      cache: "Cache", cacheOff: "sem cache", cache60: "1 minuto", cache600: "10 minutos", cache3600: "1 hora", cache86400: "24 horas",
+      tokensToday: "tokens hoje", tok: "tok",
+      keysTitle: "Chaves de aplicativos", keysHelp: "Dê a cada aplicativo (site, robô, sistema de reservas…) a sua própria chave, com limite diário. As chaves de aplicativo só enviam; o painel e as configurações ficam só com você.",
+      keyName: "Nome do aplicativo", keyPerDay: "Chamadas por dia (vazio = sem limite)", createKey: "Criar chave", noKeys: "Nenhuma chave de aplicativo ainda.",
+      keyCreated: "Chave de {name}. Copie agora: ela não aparece de novo.", copy: "Copiar", copied: "Copiada.",
+      revoke: "Cortar", confirmRevoke: "Cortar a chave de {name}? Esse aplicativo para de funcionar até receber uma chave nova.",
+      keyUsage: "{used} chamadas hoje", keyUsageLimit: "{used} / {limit} chamadas hoje",
       legOk: "livre", legHigh: "80% ou mais do limite", legFull: "cheio ou pausado por erro", legUser: "pausado por você",
       noProviders: "nenhum provedor ainda", sectorsNav: "Setores", vstats: "{routes} rotas · {apis} APIs · {sent} envios hoje", vstats1: "1 rota · {apis} APIs · {sent} envios hoje", sentToday: "{n} envios hoje",
       soonTitle: "Ainda sem APIs neste setor", soonText: "Chega numa próxima versão.",
@@ -70,7 +84,7 @@
       marketing: "Permite e-mails de marketing", keysSaved: "chaves", saved: "guardada", missing: "em falta",
       confirmRemove: "Remover {name}? As chaves guardadas são apagadas.", confirmRemoveRoute: "Remover a rota {name}?",
       addTitle: "Adicionar API", addHelp: "As chaves ficam guardadas cifradas e nunca mais aparecem. O hub passa a usar a nova API já na próxima chamada.",
-      type: "Provedor", name: "Nome (opcional)", add: "Adicionar", newRouteTitle: "Nova rota", create: "Criar",
+      type: "Provedor", name: "Nome (opcional)", routeNameLabel: "Nome da rota", add: "Adicionar", newRouteTitle: "Nova rota", create: "Criar",
       done: "Feito.", added: "{name} adicionado. O hub já está usando.", ro_memory_storage: "Só leitura: os contadores estão só na memória. Ponha storage.sqlite no revezo.config.yaml para gerir as APIs aqui.",
       ro_no_secrets_key: "Só leitura: falta a variável REVEZO_SECRETS_KEY, que cifra as chaves das APIs adicionadas aqui. Acrescente-a ao .env e reinicie.",
       ro_no_api_key: "Só leitura: o servidor está rodando sem REVEZO_API_KEY.",
@@ -116,6 +130,7 @@
   const num = (n) => Number(n).toLocaleString(lang);
   const fmtTime = (iso) => new Date(iso).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const fmtUntil = (iso) => new Date(iso).toLocaleString(lang, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const compact = (n) => Number(n).toLocaleString(lang, { notation: "compact", maximumFractionDigits: 1 });
   const clip = (s, max) => (s.length > max ? s.slice(0, Math.max(1, max - 1)) + "…" : s);
 
   let state = null;
@@ -399,7 +414,8 @@
         wire.style.strokeWidth = (p.usage.day > 0 ? 1.4 + 3.6 * Math.sqrt(p.usage.day / maxDay) : 1.2) + "px";
         node.dot.setAttribute("class", "ndot f-" + st);
         node.glow.setAttribute("class", "nglow f-" + st);
-        node.pill.textContent = t("today") + " " + usageText(p.usage.day, p.limits.perDay);
+        const tok = p.meters && p.meters.tokens ? " · " + compact(p.meters.tokens.day) + " " + t("tok") : "";
+        node.pill.textContent = t("today") + " " + usageText(p.usage.day, p.limits.perDay) + tok;
         node.pillBg.setAttribute("width", String(Math.max(70, node.pill.textContent.length * 6.2 + 10)));
         const lim = p.limits.perDay ?? p.limits.perMonth;
         const used = p.limits.perDay !== undefined ? p.usage.day : p.usage.month;
@@ -502,7 +518,7 @@
     if (!recent.length) {
       const tr = el("tr");
       const td = el("td", "msg", t("none"));
-      td.colSpan = 5;
+      td.colSpan = 6;
       tr.append(td);
       body.append(tr);
       return;
@@ -510,7 +526,7 @@
     for (const e of recent) {
       const tr = el("tr");
       const cls = e.outcome === "sent" ? "ok" : e.outcome === "failed" ? "bad" : "warn";
-      tr.append(el("td", "", fmtTime(e.ts)), el("td", "", e.route), el("td", "", e.provider), el("td", cls, t(e.outcome)),
+      tr.append(el("td", "", fmtTime(e.ts)), el("td", "", e.route), el("td", "", e.provider), el("td", "", e.app || "—"), el("td", e.outcome === "cached" ? "ok" : cls, t(e.outcome)),
         el("td", "msg", [e.kind, e.message].filter(Boolean).join(" · ")));
       body.append(tr);
     }
@@ -591,7 +607,18 @@
       strat.value = r.strategy;
       strat.disabled = !writable;
       strat.addEventListener("change", () => act("PATCH", "/v1/admin/routes/" + encodeURIComponent(r.route), { strategy: strat.value }, "manageMsg"));
-      head.append(el("span", "grow"), strat);
+      head.append(el("span", "grow"));
+      if (r.kind === "llm") {
+        const cache = el("select", "inline");
+        cache.setAttribute("aria-label", t("cache") + " " + r.route);
+        for (const s of [0, 60, 600, 3600, 86400]) { const o = el("option", "", t("cache") + ": " + t(s ? "cache" + s : "cacheOff")); o.value = String(s); cache.append(o); }
+        if (![0, 60, 600, 3600, 86400].includes(r.cacheSeconds || 0)) { const o = el("option", "", t("cache") + ": " + r.cacheSeconds + " s"); o.value = String(r.cacheSeconds); cache.append(o); }
+        cache.value = String(r.cacheSeconds || 0);
+        cache.disabled = !writable;
+        cache.addEventListener("change", () => act("PATCH", "/v1/admin/routes/" + encodeURIComponent(r.route), { cacheSeconds: Number(cache.value) }, "manageMsg"));
+        head.append(cache);
+      }
+      head.append(strat);
       if (writable && r.source === "panel" && !r.providers.length) {
         const rm = el("button", "ghost danger", t("removeRoute"));
         rm.type = "button";
@@ -616,6 +643,7 @@
     info.append(top);
     const secretNames = Object.keys(p.secrets || {});
     let line = limitsLine(p);
+    if (p.meters && p.meters.tokens) line += " · " + num(p.meters.tokens.day) + " " + t("tokensToday");
     if (secretNames.length) line += " · " + t("keysSaved") + ": " + secretNames.map((k) => k + " " + (p.secrets[k] ? "✓ " + t("saved") : "✗ " + t("missing"))).join(", ");
     info.append(el("div", "muted", line));
     row.append(info);
@@ -704,6 +732,68 @@
     });
     return form;
   }
+
+  // ---------- app keys ----------
+
+  let keysSig = "";
+
+  function renderKeys() {
+    $("keysCard").hidden = !state.writable && !(state.appKeys || []).length;
+    $("keyForm").hidden = !state.writable;
+    const keys = state.appKeys || [];
+    const sig = JSON.stringify([state.writable, keys.map((k) => [k.id, k.usage.day, k.perDay])]);
+    if (sig === keysSig) return;
+    keysSig = sig;
+    const box = $("keys");
+    box.replaceChildren();
+    if (!keys.length) { box.append(el("p", "muted", t("noKeys"))); return; }
+    for (const k of keys) {
+      const row = el("div", "prov");
+      const info = el("div", "grow");
+      const top = el("div", "row");
+      top.append(el("span", "name", k.name), el("code", "muted", k.prefix + "…"));
+      info.append(top, el("div", "muted", k.perDay === null ? t("keyUsage", { used: num(k.usage.day) }) : t("keyUsageLimit", { used: num(k.usage.day), limit: num(k.perDay) })));
+      const actions = el("div", "actions");
+      const rm = el("button", "ghost danger", t("revoke"));
+      rm.type = "button";
+      rm.disabled = !state.writable;
+      rm.addEventListener("click", () => {
+        if (confirm(t("confirmRevoke", { name: k.name }))) act("DELETE", "/v1/admin/keys/" + encodeURIComponent(k.id), undefined, "keyMsg").then(() => { keysSig = ""; });
+      });
+      actions.append(rm);
+      row.append(info, actions);
+      box.append(row);
+    }
+  }
+
+  $("keyForm").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const name = $("keyName").value.trim();
+    const perDay = $("keyPerDay").value.trim();
+    try {
+      const res = await api("/v1/admin/keys", { method: "POST", body: { name, perDay: perDay === "" ? null : Number(perDay) } });
+      $("keyName").value = "";
+      $("keyPerDay").value = "";
+      $("newKeyText").textContent = t("keyCreated", { name: res.name });
+      $("newKeyValue").value = res.key;
+      $("newKey").hidden = false;
+      msg("keyMsg", "", true);
+      keysSig = "";
+      await refresh();
+    } catch (err) {
+      msg("keyMsg", errText(err), false);
+    }
+  });
+  $("copyKey").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText($("newKeyValue").value);
+    } catch {
+      $("newKeyValue").select();
+      document.execCommand("copy");
+    }
+    msg("keyMsg", t("copied"), true);
+  });
+  $("hideKey").addEventListener("click", () => { $("newKey").hidden = true; $("newKeyValue").value = ""; });
 
   // ---------- add forms ----------
 
@@ -831,6 +921,7 @@
       const typing = document.activeElement && $("routes").contains(document.activeElement) && document.activeElement.tagName !== "BUTTON";
       if (sig !== manageSig && !typing && editing === null) { manageSig = sig; renderManage(); }
       syncAddForms();
+      renderKeys();
       await pullEvents();
       $("updated").textContent = t("updated") + " " + fmtTime(new Date().toISOString());
     } catch (err) {

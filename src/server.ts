@@ -9,7 +9,8 @@ import type { EventLog } from "./core/events.ts";
 import type { Hub } from "./core/hub.ts";
 import { dashboardHtml } from "./dashboard.ts";
 import { IdempotencyCache, type StoredResponse } from "./idempotency.ts";
-import { ManageError, Manager } from "./manager.ts";
+import { ResponseCache } from "./cache.ts";
+import { appCounter, ManageError, Manager } from "./manager.ts";
 import { validateEmail, type EmailMessage } from "./plugins/email/message.ts";
 import { toChatRequest, validateChat, type ChatRequest, type ChatResult } from "./plugins/llm/message.ts";
 
@@ -32,10 +33,16 @@ const MAX_ADMIN_BODY_BYTES = 16 * 1024;
 const MAX_AUTH_BODY_BYTES = 4 * 1024;
 const SESSION_COOKIE = "revezo_session";
 const CAPTCHA_ID_RE = /^[a-f0-9]{32}$/;
+/** What an app key may call; everything else needs the main key or a dashboard login. */
+const APP_KEY_PATHS = new Set(["/v1/email/send", "/v1/chat/completions"]);
+const MAX_CACHED_CHARS = 200_000;
+
+export type Env = { Variables: { app?: string } };
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_.:-]{8,128}$/;
 
-export function createServer({ hub, defaults, apiKey, events, idempotency = new IdempotencyCache(), manager, auth }: ServerOptions): Hono {
-  const app = new Hono();
+export function createServer({ hub, defaults, apiKey, events, idempotency = new IdempotencyCache(), manager, auth }: ServerOptions): Hono<Env> {
+  const app = new Hono<Env>();
+  const chatCache = new ResponseCache<{ provider: string; model: string; content: string; finishReason: string | null; usage?: unknown }>();
   const panel = manager ?? new Manager({ hub, defaults });
   const login = auth ?? new Auth(panel);
   const expected = apiKey === undefined ? undefined : digest(apiKey);
@@ -69,7 +76,15 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
     const header = c.req.header("authorization");
     if (header !== undefined) {
       const given = header.replace(/^Bearer\s+/i, "");
-      if (!timingSafeEqual(digest(given), expected)) return c.json({ error: "unauthorized" }, 401);
+      if (timingSafeEqual(digest(given), expected)) return next();
+      // App keys: only the sending endpoints, within the key's own daily limit.
+      const key = panel.findAppKey(given);
+      if (!key) return c.json({ error: "unauthorized" }, 401);
+      if (c.req.method !== "POST" || !APP_KEY_PATHS.has(c.req.path)) return c.json({ error: "app_key_scope", message: "App keys can only send" }, 403);
+      if (!(await hub.reserve(appCounter(key.id), key.perDay === null ? {} : { perDay: key.perDay }))) {
+        return c.json({ error: "app_limit", message: `The daily limit of app key "${key.name}" is used up` }, 429);
+      }
+      c.set("app", key.name);
       return next();
     }
     if (!login.session(getCookie(c, SESSION_COOKIE))) return c.json({ error: "unauthorized" }, 401);
@@ -81,7 +96,7 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
 
   app.use("/auth/*", bodyLimit({ maxSize: MAX_AUTH_BODY_BYTES, onError: (c) => c.json({ error: "body_too_large" }, 413) }));
 
-  const startSession = (c: Context, token: string) =>
+  const startSession = (c: Context<Env>, token: string) =>
     setCookie(c, SESSION_COOKIE, token, {
       httpOnly: true,
       sameSite: "Strict",
@@ -90,7 +105,7 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
       maxAge: 12 * 3600,
     });
 
-  const readBody = async (c: Context): Promise<Record<string, unknown> | null> => {
+  const readBody = async (c: Context<Env>): Promise<Record<string, unknown> | null> => {
     try {
       const body = await c.req.json();
       return body && typeof body === "object" && !Array.isArray(body) ? body : null;
@@ -184,7 +199,7 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
   });
 
   const change = (fn: (body: unknown, name: string) => void, withBody = true) =>
-    async (c: Context) => {
+    async (c: Context<Env>) => {
       if (apiKey === undefined) return c.json({ error: "read_only", reason: "no_api_key" }, 409);
       let body: unknown;
       if (withBody) {
@@ -203,6 +218,22 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
       return c.json({ ok: true });
     };
 
+  app.post("/v1/admin/keys", async (c) => {
+    if (apiKey === undefined) return c.json({ error: "read_only", reason: "no_api_key" }, 409);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+    try {
+      return c.json({ ok: true, ...panel.createAppKey(body) });
+    } catch (err) {
+      if (err instanceof ManageError) return c.json({ error: err.code, message: err.message }, err.status);
+      throw err;
+    }
+  });
+  app.delete("/v1/admin/keys/:name", change((_, id) => panel.removeAppKey(id), false));
   app.post("/v1/admin/routes", change((body) => panel.addRoute(body)));
   app.patch("/v1/admin/routes/:name", change((body, name) => panel.updateRoute(name, body)));
   app.delete("/v1/admin/routes/:name", change((_, name) => panel.removeRoute(name), false));
@@ -228,7 +259,7 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
     const requires = message.category === "marketing" ? { allowsMarketing: true } : undefined;
     const send = async (): Promise<StoredResponse> => {
       try {
-        const sent = await hub.send(route.name, message, { requires });
+        const sent = await hub.send(route.name, message, { requires, app: c.get("app") });
         return { status: 200, body: { ok: true, provider: sent.provider, result: sent.result, attempts: sent.attempts } };
       } catch (err) {
         if (err instanceof PermanentFailureError) {
@@ -276,18 +307,29 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
       (llmRoutes.length === 1 ? llmRoutes[0] : undefined);
     if (!route) return c.json({ error: { message: "no llm route; add one in the config or on the dashboard", type: "invalid_request_error" } }, 404);
 
+    const answer = (provider: string, r: { model: string; content: string; finishReason: string | null; usage?: unknown }, revezo: object) => ({
+      id: `chatcmpl-${randomBytes(12).toString("hex")}`,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: `${provider}/${r.model}`,
+      choices: [{ index: 0, message: { role: "assistant", content: r.content }, finish_reason: r.finishReason ?? "stop" }],
+      usage: r.usage,
+      revezo: { route: route.name, provider, ...revezo },
+    });
+    const req = toChatRequest(body);
+    // An identical request inside the route's cache time is answered without using quota.
+    const ttl = route.cacheSeconds ?? 0;
+    const cacheKey = ttl > 0 ? createHash("sha256").update(route.name).update("\n").update(JSON.stringify(req)).digest("hex") : undefined;
+    const hit = cacheKey ? chatCache.get(cacheKey) : undefined;
+    if (hit) {
+      events?.add(route.name, { provider: hit.provider, outcome: "cached" }, new Date(), c.get("app"));
+      return c.json(answer(hit.provider, hit, { cached: true, attempts: [] }));
+    }
     try {
-      const sent = await hub.send<ChatRequest, ChatResult>(route.name, toChatRequest(body));
+      const sent = await hub.send<ChatRequest, ChatResult>(route.name, req, { app: c.get("app") });
       const r = sent.result;
-      return c.json({
-        id: `chatcmpl-${randomBytes(12).toString("hex")}`,
-        object: "chat.completion",
-        created: Math.floor(Date.now() / 1000),
-        model: `${sent.provider}/${r.model}`,
-        choices: [{ index: 0, message: { role: "assistant", content: r.content }, finish_reason: r.finishReason ?? "stop" }],
-        usage: r.usage,
-        revezo: { route: route.name, provider: sent.provider, attempts: sent.attempts },
-      });
+      if (cacheKey && r.content.length <= MAX_CACHED_CHARS) chatCache.set(cacheKey, { provider: sent.provider, ...r }, ttl * 1000);
+      return c.json(answer(sent.provider, r, { cached: false, attempts: sent.attempts }));
     } catch (err) {
       if (err instanceof PermanentFailureError) {
         return c.json({ error: { message: err.message, type: "invalid_request_error" }, revezo: { attempts: err.attempts } }, 422);
@@ -310,7 +352,7 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
 }
 
 /** The address the request came from. Behind a proxy this is the proxy (X-Forwarded-For is not trusted). */
-function clientIp(c: Context): string {
+function clientIp(c: Context<Env>): string {
   try {
     return getConnInfo(c).remote.address ?? "local";
   } catch {

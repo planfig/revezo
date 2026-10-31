@@ -8,7 +8,7 @@ Plugin families so far: **e-mail** (Brevo, Mailjet, any SMTP server) and **AI / 
 (OpenRouter, Groq, Ollama). The core knows nothing about either, so the same hub is meant
 for SMS, WhatsApp, scraping, social posting and web search too.
 
-> Status: early MVP (v0.4). E-mail and AI (LLM) routing and a live dashboard work;
+> Status: early MVP (v0.5). E-mail and AI (LLM) routing and a live dashboard work;
 > SMS, WhatsApp, scraping, social posting and web search are on the [roadmap](#roadmap).
 
 ## What it does
@@ -26,6 +26,10 @@ for SMS, WhatsApp, scraping, social posting and web search too.
   with a dot running along the wire for every message sent.
 - **Manage on the fly**: add, pause, reorder or remove providers on the dashboard; the hub
   uses the new setup on the very next call, without a restart.
+- **App keys**: each app gets its own key with a daily limit; you see who used what and can revoke one key without touching the others.
+- **AI answer cache**: an identical AI request inside the route's cache time is answered without spending quota.
+- **Token counts**: tokens reported by AI providers are counted per provider, today and this month.
+- **History that survives restarts**: the latest attempts are kept in the SQLite file.
 - **No secrets in logs**: logs carry provider names and outcomes, never addresses or content.
 
 ## Quick start
@@ -97,6 +101,26 @@ curl http://localhost:8787/v1/chat/completions   -H "Authorization: Bearer $REVE
 | `ollama` | no limit (your own machine) | `baseUrl` (default `http://127.0.0.1:11434`), `model` |
 
 Free plan limits change often and differ per model: check each provider's page and adjust.
+
+### App keys
+
+Instead of giving every program your main `REVEZO_API_KEY`, create one key per app on the
+dashboard (card "App keys"), optionally with a daily call limit. App keys start with
+`rvz_`, are shown once and stored only as a SHA-256 hash. They can call
+`POST /v1/email/send` and `POST /v1/chat/completions` and nothing else; a call over the
+limit gets `429 app_limit`. The history shows which app made each call.
+
+| Call | Does |
+|---|---|
+| `POST /v1/admin/keys` | `{ "name", "perDay" }` → `{ "id", "key" }` (the only time the key is shown). |
+| `DELETE /v1/admin/keys/:id` | Revokes a key. |
+
+### AI answer cache
+
+Set `cacheSeconds` on an `llm` route (in the config or with the route's Cache menu on the
+dashboard: off, 1 minute, 10 minutes, 1 hour, 24 hours). A request with the same messages
+and settings inside that time is answered from memory, marked `"revezo": { "cached": true }`,
+and uses no provider quota. Leave it off for requests that must always get a fresh answer.
 
 ### Avoiding double sends
 
@@ -176,6 +200,7 @@ See [revezo.config.example.yaml](revezo.config.example.yaml). Credentials are wr
 | `storage.sqlite` | Path of the database for counters and for providers added on the dashboard. Omit to keep counters in memory (the dashboard is then read only). |
 | `routes.<name>.kind` | API kind, e.g. `email`. |
 | `routes.<name>.strategy` | `priority`, `weighted` or `least-used`. |
+| `routes.<name>.cacheSeconds` | For `llm` routes: seconds an identical request is answered from the cache (0 = off, at most 86400). |
 | `routes.<name>.providers` | The route's providers. May be empty or left out: add them on the dashboard instead. |
 | `providers[].use` | Provider type (`brevo`, `mailjet`, `smtp`, `openrouter`, `groq`, `ollama`). |
 | `providers[].limits` | `perMinute`, `perHour`, `perDay`, `perMonth`. |
@@ -190,6 +215,23 @@ registerEmailPlugins();
 const { hub } = buildConfig(myConfigObject);
 await hub.send("email-marketing", message, { requires: { allowsMarketing: true } });
 ```
+
+## Ideas taken from other open source projects
+
+Revezo borrows proven ideas and keeps its own focus (several kinds of API in one hub,
+free-quota counting, a live dashboard):
+
+| Idea | Seen in | In Revezo |
+|---|---|---|
+| OpenAI-compatible endpoint with fallbacks | LiteLLM, Portkey | ✅ v0.4 |
+| Per-app ("virtual") keys with their own limits | LiteLLM | ✅ v0.5 |
+| Answer cache to save calls | Portkey, LiteLLM | ✅ v0.5 (exact match) |
+| Token usage per provider | LiteLLM | ✅ v0.5 (counted, not limited yet) |
+| Request history | Portkey | ✅ v0.5 (last 5,000 attempts) |
+| Streaming answers, token limits | LiteLLM | planned |
+| Alerts when a provider is almost full (Telegram, e-mail) | LiteLLM | planned |
+| One message over several channels with fallback (e-mail → SMS → WhatsApp) | Novu | planned |
+| Many notification services through one simple URL format | Apprise | planned |
 
 ## Use responsibly
 
@@ -207,7 +249,8 @@ Free plans exist to let people try a service. Before you route traffic through t
 
 - **v0.3** ✅ live dashboard with wires, provider management without restarts.
 - **v0.4** ✅ AI routing with an OpenAI-compatible endpoint (OpenRouter, Groq, Ollama).
-- **next** token counting and streaming for AI; Cerebras, Gemini, Mistral plugins.
+- **v0.5** ✅ app keys with daily limits, AI answer cache, token counts, history kept on disk.
+- **next** streaming and token limits for AI; alerts near the limit; Cerebras, Gemini, Mistral plugins.
 - **next** shared suppression list fed by provider webhooks (bounces, complaints, unsubscribes); queue for "send tomorrow"; Resend, Mailgun, SMTP2GO, Amazon SES plugins.
 - **next** listmonk integration guide, Cloudflare Workers deployment.
 - **v0.5** social posting with a "fan-out" strategy (Meta, LinkedIn, Bluesky, Telegram).

@@ -42,6 +42,7 @@ routes:
   ai:
     kind: llm
     strategy: least-used     # spread calls over the providers with the most quota left
+    cacheSeconds: 600        # identical requests within 10 minutes are answered from the cache (0 = off)
     providers:
       - use: groq
         options: { apiKey: "${GROQ_API_KEY}", model: llama-3.1-8b-instant }
