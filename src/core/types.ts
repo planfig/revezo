@@ -51,7 +51,13 @@ export interface ProviderEntry {
   adapter: Adapter;
   limits: Limits;
   weight: number;
+  /** Paused by the user on the dashboard: skipped until resumed. */
+  paused?: boolean;
+  /** "file" for providers from revezo.config.yaml, "panel" for ones added on the dashboard. */
+  source?: Source;
 }
+
+export type Source = "file" | "panel";
 
 export interface Route {
   name: string;
@@ -60,6 +66,7 @@ export interface Route {
   providers: ProviderEntry[];
   /** Same-provider retries for temporary errors. */
   maxAttempts: number;
+  source?: Source;
 }
 
 export type AttemptOutcome =
@@ -67,6 +74,7 @@ export type AttemptOutcome =
   | "skipped_full"
   | "skipped_blocked"
   | "skipped_capability"
+  | "skipped_paused"
   | "failed";
 
 export interface Attempt {

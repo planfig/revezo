@@ -9,3 +9,5 @@ export { createServer } from "./server.ts";
 export * from "./plugins/email/index.ts";
 export { EventLog, type HubEvent } from "./core/events.ts";
 export { IdempotencyCache } from "./idempotency.ts";
+export { Manager, ManageError, type ManagerOptions, type ReadOnlyReason } from "./manager.ts";
+export { listPlugins, type PluginField } from "./core/registry.ts";

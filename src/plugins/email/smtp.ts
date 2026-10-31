@@ -14,6 +14,16 @@ export const smtp: Plugin = {
   id: "smtp",
   kind: "email",
   oneAccountPerRoute: false,
+  label: "SMTP",
+  fields: [
+    { name: "host", label: "Host", type: "string", required: true, secret: false },
+    { name: "port", label: "Port", type: "number", required: false, secret: false },
+    { name: "user", label: "User", type: "string", required: false, secret: false },
+    { name: "pass", label: "Password", type: "string", required: false, secret: true },
+    { name: "secure", label: "TLS from the start (port 465)", type: "boolean", required: false, secret: false },
+  ],
+  suggestedLimits: {},
+  defaultCapabilities: { allowsMarketing: false },
   create(options): Adapter<EmailMessage, EmailResult> {
     const host = requireString(options, "host", "smtp");
     const port = Number(options.port ?? 587);
@@ -31,7 +41,7 @@ export const smtp: Plugin = {
     return {
       id: "smtp",
       kind: "email",
-      capabilities: { allowsMarketing: false },
+      capabilities: { ...smtp.defaultCapabilities },
       cost: emailCost,
       async send(m) {
         const info = await transport.sendMail({

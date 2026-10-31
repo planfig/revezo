@@ -1,12 +1,16 @@
 # Copy to revezo.config.yaml (ignored by git) and adjust.
 # Credentials always come from environment variables: ${NAME}.
+# Providers can also be added on the dashboard (/dashboard). Those are kept, encrypted,
+# in the storage.sqlite database below; the ones listed here show as "from the file":
+# the dashboard can pause and reorder them, but not remove them.
 
 server:
   port: 8787
   host: 127.0.0.1          # 0.0.0.0 to accept other machines (always with REVEZO_API_KEY)
 
 storage:
-  sqlite: ./data/revezo.db   # remove this line to keep counters in memory only
+  sqlite: ./data/storage.sqlite   # counters + providers added on the dashboard.
+                                  # Without it everything stays in memory and the dashboard is read only.
 
 timezone: UTC                # when daily/monthly counters reset
 

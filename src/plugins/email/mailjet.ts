@@ -17,6 +17,13 @@ export const mailjet: Plugin = {
   id: "mailjet",
   kind: "email",
   oneAccountPerRoute: true,
+  label: "Mailjet",
+  fields: [
+    { name: "apiKey", label: "API key", type: "string", required: true, secret: true },
+    { name: "apiSecret", label: "Secret key", type: "string", required: true, secret: true },
+  ],
+  suggestedLimits: { perDay: 200, perMonth: 6000 },
+  defaultCapabilities: { allowsMarketing: true },
   create(options, ctx): Adapter<EmailMessage, EmailResult> {
     const key = requireString(options, "apiKey", "mailjet");
     const secret = requireString(options, "apiSecret", "mailjet");
@@ -24,7 +31,7 @@ export const mailjet: Plugin = {
     return {
       id: "mailjet",
       kind: "email",
-      capabilities: { allowsMarketing: true },
+      capabilities: { ...mailjet.defaultCapabilities },
       cost: emailCost,
       async send(m, { signal }) {
         const headers = buildHeaders(m);

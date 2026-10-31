@@ -21,11 +21,22 @@ button on this repository, not in a public issue.
 | Oversized requests | Bodies over 1 MB are refused; at most 50 recipients per message. |
 | Duplicate e-mails after a timeout | `Idempotency-Key` support. |
 | Personal data in logs | Logs and the dashboard carry provider names, outcomes and counts. E-mail addresses and phone numbers in provider error text are replaced by `[email]` / `[number]`. |
-| Dashboard attacks (XSS, clickjacking) | Strict Content-Security-Policy with a per-request nonce, `X-Frame-Options: DENY`, data written as text only, key kept in `sessionStorage`. |
+| Dashboard attacks (XSS, clickjacking) | Strict Content-Security-Policy with a per-request nonce for the one script and the one stylesheet, no inline style attributes or event handlers, `X-Frame-Options: DENY`, data written as text only, key kept in `sessionStorage`. |
+| API keys added on the dashboard | Stored in `storage.sqlite` encrypted with AES-256-GCM. The key is derived from `REVEZO_SECRETS_KEY` (at least 24 characters) with scrypt and a random salt; each value is bound to its provider name. A wrong key stops the server at start instead of loading garbage. |
+| Secrets leaking through the API | No route returns option values: `/v1/admin/state` only says whether each secret field is set. Error messages name fields, never values. |
+| Changes by someone without the key | Every `/v1/admin/*` change needs `REVEZO_API_KEY`. Without it, without `REVEZO_SECRETS_KEY` or with in-memory storage, the dashboard is read only and says why. |
+| Bad management input | Unknown fields are refused; names, limits, weights and options are checked against the plugin's field list; bodies over 16 KB are refused; at most 50 routes and 100 providers. |
+| Breaking provider terms | One account per provider per route (`oneAccountPerRoute`) and unique provider names are enforced on the dashboard too. |
 | Container escape impact | The Docker image runs as the unprivileged `node` user. |
 | Vulnerable dependencies | `npm audit` in CI and weekly Dependabot updates. |
 
 ## Known limits
+
+- Whoever has `REVEZO_API_KEY` can add providers, including an SMTP host of their choice
+  that the server will connect to. Treat the key like an admin password.
+- `REVEZO_SECRETS_KEY` protects a copied database file, not a compromised server: the
+  running process holds the keys in memory to send mail. Back the key up apart from the
+  database; losing it means adding the dashboard's providers again.
 
 - The dashboard and API use plain HTTP. Put Revezo behind HTTPS (a reverse proxy or your
   host's TLS) before exposing it to the internet.

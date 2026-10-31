@@ -11,12 +11,16 @@ export const brevo: Plugin = {
   id: "brevo",
   kind: "email",
   oneAccountPerRoute: true,
+  label: "Brevo",
+  fields: [{ name: "apiKey", label: "API key", type: "string", required: true, secret: true }],
+  suggestedLimits: { perDay: 300 },
+  defaultCapabilities: { allowsMarketing: true },
   create(options, ctx): Adapter<EmailMessage, EmailResult> {
     const apiKey = requireString(options, "apiKey", "brevo");
     return {
       id: "brevo",
       kind: "email",
-      capabilities: { allowsMarketing: true },
+      capabilities: { ...brevo.defaultCapabilities },
       cost: emailCost,
       async send(m, { signal }) {
         const headers = buildHeaders(m);

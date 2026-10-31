@@ -12,6 +12,9 @@ export interface RevezoConfig {
   timezone: string;
   defaults: Record<string, string>;
   hub: Hub;
+  /** SQLite file from storage.sqlite, also used for providers added on the dashboard. */
+  storagePath?: string;
+  pluginContext: PluginContext;
 }
 
 const STRATEGIES: Strategy[] = ["priority", "weighted", "least-used"];
@@ -82,7 +85,8 @@ export function buildConfig(raw: unknown, opts: BuildOptions = {}): RevezoConfig
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new ConfigError("server.port must be a number between 1 and 65535");
   // Local only by default; Docker sets HOST=0.0.0.0.
   const host = String(env.HOST ?? cfg.server?.host ?? "127.0.0.1");
-  return { server: { port, host }, timezone, defaults, hub };
+  const storagePath = typeof cfg.storage?.sqlite === "string" ? cfg.storage.sqlite : undefined;
+  return { server: { port, host }, timezone, defaults, hub, storagePath, pluginContext: ctx };
 }
 
 function buildRoute(
@@ -120,12 +124,12 @@ function buildRoute(
     const options = expandEnv(p.options ?? {}, env, `${at}.options`) as Record<string, unknown>;
     const created = plugin.create(options, ctx);
     const adapter = p.capabilities ? { ...created, capabilities: { ...created.capabilities, ...p.capabilities } } : created;
-    return { name, adapter, limits: parseLimits(p.limits, at), weight: parseWeight(p.weight, at) };
+    return { name, adapter, limits: parseLimits(p.limits, at), weight: parseWeight(p.weight, at), source: "file" as const };
   });
 
   const maxAttempts = Number(r.maxAttempts ?? 3);
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) throw new ConfigError(`${where}.maxAttempts must be a whole number ≥ 1`);
-  return { name: routeName, kind, strategy, providers, maxAttempts };
+  return { name: routeName, kind, strategy, providers, maxAttempts, source: "file" };
 }
 
 function parseLimits(raw: unknown, at: string): Limits {

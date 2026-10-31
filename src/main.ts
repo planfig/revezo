@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { loadConfigFile } from "./config.ts";
 import { ConfigError } from "./core/errors.ts";
 import { EventLog } from "./core/events.ts";
+import { Manager } from "./manager.ts";
 import { registerEmailPlugins } from "./plugins/email/index.ts";
 import { createServer } from "./server.ts";
 
@@ -32,13 +33,22 @@ try {
   if (!apiKey && config.server.host !== "127.0.0.1" && config.server.host !== "localhost") {
     throw new ConfigError("Without REVEZO_API_KEY the server may only listen on 127.0.0.1.");
   }
-  const app = createServer({ hub: config.hub, defaults: config.defaults, apiKey, events });
+  const manager = new Manager({
+    hub: config.hub,
+    ctx: config.pluginContext,
+    storagePath: config.storagePath,
+    secretsKey: process.env.REVEZO_SECRETS_KEY || undefined,
+    defaults: config.defaults,
+  });
+  for (const warning of manager.warnings) log("warning", { message: warning });
+  const app = createServer({ hub: config.hub, defaults: config.defaults, apiKey, events, manager });
   const server = serve({ fetch: app.fetch, port: config.server.port, hostname: config.server.host }, (info) => {
     log("listening", {
       host: config.server.host,
       port: info.port,
       routes: config.hub.routes().map((r) => r.name),
       auth: apiKey ? "on" : "OFF",
+      dashboard: manager.writable && apiKey ? "read-write" : `read-only (${apiKey ? manager.readOnlyReason : "no_api_key"})`,
     });
   });
   const stop = () => {

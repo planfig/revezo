@@ -1,8 +1,18 @@
 import { ConfigError } from "./errors.ts";
-import type { Adapter } from "./types.ts";
+import type { Adapter, Limits } from "./types.ts";
 
 export interface PluginContext {
   fetch: typeof fetch;
+}
+
+/** One option of a provider, described so the dashboard can draw a form for it. */
+export interface PluginField {
+  name: string;
+  label: string;
+  type: "string" | "number" | "boolean";
+  required: boolean;
+  /** Secret values are stored encrypted and never sent back by the API. */
+  secret: boolean;
 }
 
 export interface Plugin {
@@ -14,6 +24,14 @@ export interface Plugin {
    * The config loader refuses to list such a provider twice in one route.
    */
   oneAccountPerRoute: boolean;
+  /** Name shown on the dashboard, e.g. "Brevo". */
+  label?: string;
+  /** Options the provider takes. Plugins without fields can only be added in the config file. */
+  fields?: PluginField[];
+  /** Free plan limits, offered as defaults on the dashboard. */
+  suggestedLimits?: Limits;
+  /** Capabilities of the adapters it creates, before any override. */
+  defaultCapabilities?: Record<string, unknown>;
   create(options: Record<string, unknown>, ctx: PluginContext): Adapter;
 }
 
@@ -30,6 +48,10 @@ export function getPlugin(kind: string, id: string): Plugin {
     throw new ConfigError(`Unknown ${kind} provider "${id}". Available: ${known.join(", ") || "none"}`);
   }
   return plugin;
+}
+
+export function listPlugins(): Plugin[] {
+  return [...plugins.values()];
 }
 
 /** Reads a required string option without ever echoing its value. */

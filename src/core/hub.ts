@@ -42,6 +42,15 @@ export class Hub {
     return this;
   }
 
+  /**
+   * Replaces every route at once. The next call uses the new ones; calls already running
+   * finish with the route they started with, because routes are never changed in place.
+   */
+  setRoutes(routes: Route[]): void {
+    this.#routes = new Map(routes.map((r) => [r.name, r]));
+    for (const name of this.#rrState.keys()) if (!this.#routes.has(name)) this.#rrState.delete(name);
+  }
+
   route(name: string): Route | undefined {
     return this.#routes.get(name);
   }
@@ -61,6 +70,10 @@ export class Hub {
     };
 
     for (const entry of await this.#order(route)) {
+      if (entry.paused) {
+        record({ provider: entry.name, outcome: "skipped_paused" });
+        continue;
+      }
       if (!matches(entry.adapter.capabilities, opts.requires)) {
         record({ provider: entry.name, outcome: "skipped_capability" });
         continue;
@@ -109,10 +122,15 @@ export class Hub {
         route: route.name,
         kind: route.kind,
         strategy: route.strategy,
+        source: route.source ?? "file",
         providers: await Promise.all(
           route.providers.map(async (p) => ({
             name: p.name,
             type: p.adapter.id,
+            source: p.source ?? "file",
+            paused: p.paused === true,
+            weight: p.weight,
+            capabilities: p.adapter.capabilities,
             limits: p.limits,
             usage: await this.#store.usage(p.name, now, this.#timeZone),
             blocked: await this.#store.blocked(p.name, now),
@@ -143,7 +161,12 @@ export class Hub {
   }
 
   async #order(route: Route): Promise<ProviderEntry[]> {
-    const list = route.providers;
+    // Paused providers go last, so they never win a weighted turn but still show in the attempts.
+    const paused = route.providers.filter((p) => p.paused);
+    return [...(await this.#orderActive(route, route.providers.filter((p) => !p.paused))), ...paused];
+  }
+
+  async #orderActive(route: Route, list: ProviderEntry[]): Promise<ProviderEntry[]> {
     if (route.strategy === "priority" || list.length < 2) return list;
     if (route.strategy === "least-used") {
       const now = this.#now();

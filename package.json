@@ -1,6 +1,6 @@
 {
   "name": "revezo",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Open source hub that routes API calls across several providers, tracking free quotas and failing over when one runs out.",
   "license": "MIT",
   "type": "module",
@@ -14,7 +14,8 @@
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc",
     "check:secrets": "node scripts/check-secrets.mjs",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "demo": "node scripts/demo.ts"
   },
   "keywords": [
     "api",
