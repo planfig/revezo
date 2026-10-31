@@ -1,3 +1,4 @@
+import type { CredentialStore } from "./auth.ts";
 import { ConfigError } from "./core/errors.ts";
 import type { Hub } from "./core/hub.ts";
 import { PanelStore } from "./core/panel-store.ts";
@@ -69,8 +70,9 @@ const KEY_CHECK = "revezo-secrets-check";
  * Keeps the hub's routes in line with the config file plus what was changed on the dashboard.
  * Every change is saved first, then the hub gets a fresh set of routes (see Hub.setRoutes).
  */
-export class Manager {
+export class Manager implements CredentialStore {
   #hub: Hub;
+  #memoryCredentials?: { user: string; hash: string };
   #ctx: PluginContext;
   #routes = new Map<string, RouteSpec>();
   #settings = new Map<string, unknown>();
@@ -133,6 +135,25 @@ export class Manager {
 
   close(): void {
     this.#store?.close();
+  }
+
+  /** The dashboard login, in the SQLite file when there is one (kept in memory otherwise). */
+  getCredentials(): { user: string; hash: string } | undefined {
+    if (!this.#store) return this.#memoryCredentials;
+    const user = this.#store.meta("admin_user");
+    const hash = this.#store.meta("admin_hash");
+    return user && hash ? { user, hash } : undefined;
+  }
+
+  setCredentials(user: string, hash: string): void {
+    if (!this.#store) {
+      this.#memoryCredentials = { user, hash };
+      return;
+    }
+    this.#store.transaction(() => {
+      this.#store!.setMeta("admin_user", user);
+      this.#store!.setMeta("admin_hash", hash);
+    });
   }
 
   /** Everything the dashboard shows, with live usage. Never includes option values. */

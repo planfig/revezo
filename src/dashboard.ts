@@ -25,14 +25,28 @@ export function dashboardHtml(nonce: string): string {
     <h1>Revezo</h1>
     <span class="muted" id="updated" aria-live="polite"></span>
   </header>
-  <section class="card" id="login">
-    <h2 data-t="loginTitle"></h2>
-    <p class="muted" data-t="loginHelp"></p>
-    <form id="loginForm">
-      <input id="key" type="password" autocomplete="current-password" required aria-label="REVEZO_API_KEY">
-      <button type="submit" data-t="open"></button>
+  <section class="card" id="login" hidden>
+    <h2 id="loginTitle"></h2>
+    <p class="muted" id="loginHelp"></p>
+    <form id="loginForm" class="entry">
+      <label><span data-t="user"></span><input id="user" autocomplete="username" required maxlength="64"></label>
+      <label><span data-t="password"></span><input id="password" type="password" autocomplete="current-password" required maxlength="200"></label>
+      <div class="captcha" id="captchaBox" hidden>
+        <img id="captchaImg" alt="captcha" width="170" height="60">
+        <button type="button" class="ghost" id="captchaNew" data-t="captchaNew"></button>
+        <label><span data-t="captcha"></span><input id="captcha" autocomplete="off" autocapitalize="characters" maxlength="8"></label>
+      </div>
+      <button type="submit" data-t="enter"></button>
     </form>
-    <p id="error" hidden></p>
+    <form id="setupForm" class="entry" hidden>
+      <label><span>REVEZO_API_KEY</span><input id="setupKey" type="password" autocomplete="off" required maxlength="200"></label>
+      <label><span data-t="user"></span><input id="setupUser" autocomplete="username" required minlength="3" maxlength="64"></label>
+      <label><span data-t="newPassword"></span><input id="setupPass" type="password" autocomplete="new-password" required minlength="10" maxlength="200"></label>
+      <label><span data-t="repeatPassword"></span><input id="setupPass2" type="password" autocomplete="new-password" required minlength="10" maxlength="200"></label>
+      <button type="submit" data-t="saveLogin"></button>
+    </form>
+    <p class="row"><button class="link" type="button" id="toSetup" data-t="forgot"></button><button class="link" type="button" id="toLogin" data-t="backToLogin" hidden></button></p>
+    <p id="error" role="alert" hidden></p>
   </section>
   <div id="app" hidden>
     <div class="live">

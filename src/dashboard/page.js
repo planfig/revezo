@@ -5,10 +5,18 @@
   "use strict";
   const T = {
     en: {
-      loginTitle: "Open dashboard", loginHelp: "Paste the REVEZO_API_KEY. It is kept only in this tab.", open: "Open",
+      loginTitle: "Sign in", loginHelp: "Use the user and password of this Revezo.", open: "Open",
+      firstTitle: "Create your login", firstHelp: "First time here: prove you own this Revezo with the REVEZO_API_KEY (in the .env file) and choose a user and password.",
+      resetTitle: "New password", resetHelp: "Forgot the password? Use the REVEZO_API_KEY (in the .env file) to choose a new one.",
+      user: "User", password: "Password", newPassword: "New password (at least 10 characters)", repeatPassword: "Repeat the password",
+      captcha: "Type the characters in the picture", captchaNew: "Another picture", enter: "Sign in", saveLogin: "Save and sign in",
+      forgot: "Forgot the password?", backToLogin: "Back to sign in", locked: "Too many attempts. Try again in {min} min.",
+      err_wrong_login: "Wrong user or password.", err_captcha_required: "Type the characters in the picture.", err_captcha_wrong: "The characters do not match. Try the new picture.",
+      err_wrong_api_key: "That is not the REVEZO_API_KEY.", err_invalid_user: "User: 3 to 64 letters, digits or . _ @ -", err_weak_password: "The password needs at least 10 characters.",
+      err_mismatch: "The two passwords are different.", err_invalid_body: "Something went wrong. Try again.",
       liveTitle: "Live view", liveHelp: "Updates every 3 seconds", clients: "Clients", clientsSub: "your apps", hub: "Hub",
       hubSub: "{routes} routes · {sent} sent today", recent: "Recent attempts", time: "Time", route: "Route", provider: "Provider",
-      result: "Result", detail: "Detail", logout: "Close dashboard", updated: "Updated", wrongKey: "Wrong key.",
+      result: "Result", detail: "Detail", logout: "Sign out", updated: "Updated",
       offline: "Could not reach the server.", today: "Today", month: "Month", noLimit: "no limit",
       st_ok: "free", st_high: "almost full", st_full: "full", st_blocked: "paused by errors until {until}", st_user: "paused by you",
       sent: "sent", skipped_full: "skipped: full", skipped_blocked: "skipped: paused (errors)", skipped_capability: "skipped: not allowed",
@@ -33,10 +41,18 @@
       limitsLine: "{limits} · weight {weight}", perDayShort: "/day", perMonthShort: "/month", perHourShort: "/hour", perMinuteShort: "/min",
     },
     pt: {
-      loginTitle: "Abrir painel", loginHelp: "Cole a REVEZO_API_KEY. Ela fica guardada só nesta aba.", open: "Abrir",
+      loginTitle: "Entrar", loginHelp: "Use o usuário e a senha deste Revezo.", open: "Abrir",
+      firstTitle: "Crie o seu acesso", firstHelp: "Primeira vez: prove que este Revezo é seu com a REVEZO_API_KEY (no arquivo .env) e escolha um usuário e uma senha.",
+      resetTitle: "Nova senha", resetHelp: "Esqueceu a senha? Use a REVEZO_API_KEY (no arquivo .env) para escolher outra.",
+      user: "Usuário", password: "Senha", newPassword: "Nova senha (mínimo 10 caracteres)", repeatPassword: "Repita a senha",
+      captcha: "Digite os caracteres da imagem", captchaNew: "Outra imagem", enter: "Entrar", saveLogin: "Salvar e entrar",
+      forgot: "Esqueceu a senha?", backToLogin: "Voltar para entrar", locked: "Tentativas demais. Tente de novo daqui a {min} min.",
+      err_wrong_login: "Usuário ou senha errados.", err_captcha_required: "Digite os caracteres da imagem.", err_captcha_wrong: "Os caracteres não conferem. Tente a nova imagem.",
+      err_wrong_api_key: "Essa não é a REVEZO_API_KEY.", err_invalid_user: "Usuário: 3 a 64 letras, números ou . _ @ -", err_weak_password: "A senha precisa de pelo menos 10 caracteres.",
+      err_mismatch: "As duas senhas são diferentes.", err_invalid_body: "Algo deu errado. Tente de novo.",
       liveTitle: "Ao vivo", liveHelp: "Atualiza a cada 3 segundos", clients: "Clientes", clientsSub: "seus apps", hub: "Hub",
       hubSub: "{routes} rotas · {sent} envios hoje", recent: "Últimas tentativas", time: "Hora", route: "Rota", provider: "Provedor",
-      result: "Resultado", detail: "Detalhe", logout: "Fechar painel", updated: "Atualizado", wrongKey: "Chave errada.",
+      result: "Resultado", detail: "Detalhe", logout: "Sair", updated: "Atualizado",
       offline: "Não foi possível falar com o servidor.", today: "Hoje", month: "Mês", noLimit: "sem limite",
       st_ok: "livre", st_high: "quase cheio", st_full: "cheio", st_blocked: "pausado por erro até {until}", st_user: "pausado por você",
       sent: "enviado", skipped_full: "pulado: cheio", skipped_blocked: "pulado: pausado (erro)", skipped_capability: "pulado: não permitido",
@@ -97,10 +113,6 @@
     if (text !== undefined) e.textContent = text;
     return e;
   };
-  const store = {
-    get() { try { return sessionStorage.getItem("revezo-key"); } catch { return null; } },
-    set(v) { try { v ? sessionStorage.setItem("revezo-key", v) : sessionStorage.removeItem("revezo-key"); } catch {} },
-  };
   const num = (n) => Number(n).toLocaleString(lang);
   const fmtTime = (iso) => new Date(iso).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const fmtUntil = (iso) => new Date(iso).toLocaleString(lang, { weekday: "short", hour: "2-digit", minute: "2-digit" });
@@ -115,10 +127,11 @@
   let editing = null; // provider name whose edit form is open
 
   async function api(path, opts = {}) {
-    const headers = { authorization: "Bearer " + store.get() };
+    // The session cookie authenticates; this header proves the call comes from this page.
+    const headers = { "x-revezo-panel": "1" };
     if (opts.body !== undefined) headers["content-type"] = "application/json";
     const res = await fetch(path, {
-      method: opts.method || "GET", headers, cache: "no-store",
+      method: opts.method || "GET", headers, cache: "no-store", credentials: "same-origin",
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
     });
     let data = null;
@@ -539,7 +552,7 @@
       await refresh();
       return true;
     } catch (err) {
-      if (err.status === 401) { store.set(null); showLogin(t("wrongKey")); return false; }
+      if (err.status === 401) { boot(); return false; }
       msg(msgId, errText(err), false);
       return false;
     }
@@ -805,7 +818,7 @@
   // ---------- refresh loop ----------
 
   async function refresh() {
-    if (busy || !store.get()) return;
+    if (busy) return;
     busy = true;
     try {
       state = await api("/v1/admin/state");
@@ -821,7 +834,7 @@
       await pullEvents();
       $("updated").textContent = t("updated") + " " + fmtTime(new Date().toISOString());
     } catch (err) {
-      if (err.status === 401) { store.set(null); showLogin(t("wrongKey")); }
+      if (err.status === 401) boot();
       else $("updated").textContent = t("offline");
     } finally {
       busy = false;
@@ -834,7 +847,11 @@
     timer = setInterval(() => { if (!document.hidden) refresh(); }, 3000);
   }
 
-  function showLogin(text) {
+  // ---------- login ----------
+
+  let captchaId = null;
+
+  function showEntry(mode, text) {
     clearInterval(timer);
     lastId = null;
     recent = [];
@@ -842,8 +859,56 @@
     addSig = "";
     $("app").hidden = true;
     $("login").hidden = false;
+    const setup = mode !== "login";
+    $("loginForm").hidden = setup;
+    $("setupForm").hidden = !setup;
+    $("toSetup").hidden = setup;
+    $("toLogin").hidden = !setup || mode === "first";
+    $("loginTitle").textContent = t(mode === "first" ? "firstTitle" : mode === "reset" ? "resetTitle" : "loginTitle");
+    $("loginHelp").textContent = t(mode === "first" ? "firstHelp" : mode === "reset" ? "resetHelp" : "loginHelp");
     $("error").hidden = !text;
     $("error").textContent = text || "";
+  }
+
+  async function post(path, body) {
+    const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), credentials: "same-origin" });
+    let data = {};
+    try { data = await res.json(); } catch {}
+    return { status: res.status, data };
+  }
+
+  async function loadCaptcha() {
+    try {
+      captchaId = (await post("/auth/captcha", {})).data.id;
+      $("captchaImg").src = "/auth/captcha/" + captchaId + ".svg";
+      $("captcha").value = "";
+      $("captcha").required = true;
+      $("captchaBox").hidden = false;
+    } catch {
+      $("error").hidden = false;
+      $("error").textContent = t("offline");
+    }
+  }
+
+  const lockedText = (sec) => t("locked", { min: Math.max(1, Math.ceil(sec / 60)) });
+
+  /** Asks the server what to show: the dashboard, the login or the first-time setup. */
+  async function boot() {
+    clearInterval(timer);
+    let st;
+    try {
+      st = await (await fetch("/auth/status", { cache: "no-store", credentials: "same-origin" })).json();
+    } catch {
+      showEntry("login", t("offline"));
+      return;
+    }
+    if (st.loggedIn) { start(); return; }
+    if (!st.admin) { showEntry("first"); return; }
+    showEntry("login", st.lockedFor ? lockedText(st.lockedFor) : "");
+    $("captchaBox").hidden = true;
+    $("captcha").required = false;
+    captchaId = null;
+    if (st.captcha) loadCaptcha();
   }
 
   let resizeTimer;
@@ -852,12 +917,40 @@
     resizeTimer = setTimeout(() => { if (state) renderVisors(state.routes); }, 200);
   });
 
-  $("loginForm").addEventListener("submit", (ev) => {
+  $("loginForm").addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    store.set($("key").value.trim());
-    $("key").value = "";
-    start();
+    const body = { user: $("user").value.trim(), password: $("password").value };
+    if (captchaId) { body.captchaId = captchaId; body.captcha = $("captcha").value; }
+    const { status, data } = await post("/auth/login", body);
+    $("password").value = "";
+    if (status === 200) { captchaId = null; $("captchaBox").hidden = true; $("error").hidden = true; start(); return; }
+    $("error").hidden = false;
+    $("error").textContent = status === 429 ? lockedText(data.retryAfterSec || 900) : t("err_" + (data.error || "wrong_login"));
+    captchaId = null;
+    if (data.captcha || data.error === "captcha_required" || data.error === "captcha_wrong") loadCaptcha();
   });
-  $("logout").addEventListener("click", () => { store.set(null); showLogin(); });
-  if (store.get()) start();
+  $("captchaNew").addEventListener("click", loadCaptcha);
+
+  $("setupForm").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if ($("setupPass").value !== $("setupPass2").value) {
+      $("error").hidden = false;
+      $("error").textContent = t("err_mismatch");
+      return;
+    }
+    const { status, data } = await post("/auth/setup", { apiKey: $("setupKey").value.trim(), user: $("setupUser").value.trim(), password: $("setupPass").value });
+    $("setupKey").value = "";
+    $("setupPass").value = "";
+    $("setupPass2").value = "";
+    if (status === 200) { $("error").hidden = true; start(); return; }
+    $("error").hidden = false;
+    $("error").textContent = status === 429 ? lockedText(data.retryAfterSec || 900) : t("err_" + (data.error || "wrong_api_key"));
+  });
+  $("toSetup").addEventListener("click", () => showEntry("reset"));
+  $("toLogin").addEventListener("click", () => boot());
+  $("logout").addEventListener("click", async () => {
+    await post("/auth/logout", {}).catch(() => {});
+    boot();
+  });
+  boot();
 })();

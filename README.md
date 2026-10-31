@@ -107,8 +107,11 @@ memory for 24 hours.
 
 ## Dashboard
 
-Open `http://localhost:8787/dashboard` and paste your `REVEZO_API_KEY`. The key stays only
-in that browser tab. The page is in English or Portuguese, following the browser language,
+Open `http://localhost:8787/dashboard`. The first time, prove you own the server with your
+`REVEZO_API_KEY` and choose a user and password; after that you sign in with them. After
+3 wrong tries a captcha (drawn by Revezo itself, no outside service) is asked, and after 10
+the address is locked for 15 minutes. Forgot the password? "Forgot the password?" lets you
+choose a new one with the `REVEZO_API_KEY`. Programs keep using the key as a Bearer token. The page is in English or Portuguese, following the browser language,
 and works on phones.
 
 **Live view.** One dark "screen" per sector, stacked so you scroll down through them:

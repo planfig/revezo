@@ -1,6 +1,9 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { getConnInfo } from "@hono/node-server/conninfo";
+import { Auth, MAX_PASSWORD, MIN_PASSWORD, USER_RE } from "./auth.ts";
 import { NoProviderAvailableError, PermanentFailureError } from "./core/errors.ts";
 import type { EventLog } from "./core/events.ts";
 import type { Hub } from "./core/hub.ts";
@@ -20,15 +23,21 @@ export interface ServerOptions {
   idempotency?: IdempotencyCache;
   /** Changes routes from the dashboard. Without one the dashboard is read only. */
   manager?: Manager;
+  /** Dashboard login. Defaults to one stored through the manager. */
+  auth?: Auth;
 }
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_ADMIN_BODY_BYTES = 16 * 1024;
+const MAX_AUTH_BODY_BYTES = 4 * 1024;
+const SESSION_COOKIE = "revezo_session";
+const CAPTCHA_ID_RE = /^[a-f0-9]{32}$/;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_.:-]{8,128}$/;
 
-export function createServer({ hub, defaults, apiKey, events, idempotency = new IdempotencyCache(), manager }: ServerOptions): Hono {
+export function createServer({ hub, defaults, apiKey, events, idempotency = new IdempotencyCache(), manager, auth }: ServerOptions): Hono {
   const app = new Hono();
   const panel = manager ?? new Manager({ hub, defaults });
+  const login = auth ?? new Auth(panel);
   const expected = apiKey === undefined ? undefined : digest(apiKey);
 
   app.use("*", async (c, next) => {
@@ -52,11 +61,105 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
     return c.html(dashboardHtml(nonce));
   });
 
+  // Programs send REVEZO_API_KEY as a Bearer token; the dashboard uses the session cookie
+  // from its login. Cookie requests that change something must also send X-Revezo-Panel,
+  // which other sites cannot add (on top of SameSite=Strict).
   app.use("/v1/*", async (c, next) => {
     if (expected === undefined) return next();
-    const given = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-    if (!timingSafeEqual(digest(given), expected)) return c.json({ error: "unauthorized" }, 401);
+    const header = c.req.header("authorization");
+    if (header !== undefined) {
+      const given = header.replace(/^Bearer\s+/i, "");
+      if (!timingSafeEqual(digest(given), expected)) return c.json({ error: "unauthorized" }, 401);
+      return next();
+    }
+    if (!login.session(getCookie(c, SESSION_COOKIE))) return c.json({ error: "unauthorized" }, 401);
+    if (c.req.method !== "GET" && c.req.header("x-revezo-panel") !== "1") return c.json({ error: "missing_panel_header" }, 403);
     return next();
+  });
+
+  // ---------- dashboard login ----------
+
+  app.use("/auth/*", bodyLimit({ maxSize: MAX_AUTH_BODY_BYTES, onError: (c) => c.json({ error: "body_too_large" }, 413) }));
+
+  const startSession = (c: Context, token: string) =>
+    setCookie(c, SESSION_COOKIE, token, {
+      httpOnly: true,
+      sameSite: "Strict",
+      path: "/",
+      secure: new URL(c.req.url).protocol === "https:",
+      maxAge: 12 * 3600,
+    });
+
+  const readBody = async (c: Context): Promise<Record<string, unknown> | null> => {
+    try {
+      const body = await c.req.json();
+      return body && typeof body === "object" && !Array.isArray(body) ? body : null;
+    } catch {
+      return null;
+    }
+  };
+
+  app.get("/auth/status", (c) => {
+    const ip = clientIp(c);
+    return c.json({
+      auth: expected !== undefined,
+      admin: login.hasAdmin(),
+      loggedIn: expected === undefined || login.session(getCookie(c, SESSION_COOKIE)) !== undefined,
+      captcha: login.needsCaptcha(ip),
+      lockedFor: login.lockedFor(ip),
+    });
+  });
+
+  // Creates the login, or replaces a forgotten password. REVEZO_API_KEY is the master key.
+  app.post("/auth/setup", async (c) => {
+    if (expected === undefined) return c.json({ error: "no_api_key" }, 409);
+    const ip = clientIp(c);
+    const locked = login.lockedFor(ip);
+    if (locked) return c.json({ error: "locked", retryAfterSec: locked }, 429);
+    const body = await readBody(c);
+    if (!body) return c.json({ error: "invalid_body" }, 400);
+    const { apiKey: given, user, password } = body;
+    if (typeof given !== "string" || !timingSafeEqual(digest(given), expected)) {
+      login.recordFailure(ip);
+      return c.json({ error: "wrong_api_key" }, 401);
+    }
+    if (typeof user !== "string" || !USER_RE.test(user)) return c.json({ error: "invalid_user" }, 400);
+    if (typeof password !== "string" || password.length < MIN_PASSWORD || password.length > MAX_PASSWORD) {
+      return c.json({ error: "weak_password", min: MIN_PASSWORD }, 400);
+    }
+    login.clearFailures(ip);
+    startSession(c, await login.setCredentials(user, password));
+    return c.json({ ok: true });
+  });
+
+  app.post("/auth/login", async (c) => {
+    const body = await readBody(c);
+    if (!body) return c.json({ error: "invalid_body" }, 400);
+    const str = (v: unknown) => (typeof v === "string" ? v.slice(0, MAX_PASSWORD) : "");
+    const captcha = body.captchaId ? { id: str(body.captchaId), answer: str(body.captcha) } : undefined;
+    const result = await login.login(clientIp(c), str(body.user), str(body.password), captcha);
+    if (result.ok) {
+      startSession(c, result.token);
+      return c.json({ ok: true });
+    }
+    if (result.code === "locked") return c.json({ error: "locked", retryAfterSec: result.retryAfterSec }, 429);
+    return c.json({ error: result.code, captcha: result.captcha }, result.code === "wrong_login" ? 401 : 400);
+  });
+
+  app.post("/auth/logout", (c) => {
+    login.logout(getCookie(c, SESSION_COOKIE));
+    deleteCookie(c, SESSION_COOKIE, { path: "/" });
+    return c.json({ ok: true });
+  });
+
+  app.post("/auth/captcha", (c) => c.json({ id: login.newCaptcha() }));
+
+  app.get("/auth/captcha/:file", (c) => {
+    const id = c.req.param("file").replace(/\.svg$/, "");
+    const svg = CAPTCHA_ID_RE.test(id) ? login.captchaSvg(id) : undefined;
+    if (!svg) return c.json({ error: "not_found" }, 404);
+    c.header("Content-Security-Policy", "default-src 'none'");
+    return c.body(svg, 200, { "content-type": "image/svg+xml" });
   });
 
   app.use("/v1/admin/*", bodyLimit({ maxSize: MAX_ADMIN_BODY_BYTES, onError: (c) => c.json({ error: "body_too_large" }, 413) }));
@@ -204,6 +307,15 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
   });
 
   return app;
+}
+
+/** The address the request came from. Behind a proxy this is the proxy (X-Forwarded-For is not trusted). */
+function clientIp(c: Context): string {
+  try {
+    return getConnInfo(c).remote.address ?? "local";
+  } catch {
+    return "local";
+  }
 }
 
 /** Comparing fixed-length digests keeps the check constant-time regardless of key length. */
