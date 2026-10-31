@@ -4,9 +4,11 @@ import { ConfigError } from "./core/errors.ts";
 import { EventLog } from "./core/events.ts";
 import { Manager } from "./manager.ts";
 import { registerEmailPlugins } from "./plugins/email/index.ts";
+import { registerLlmPlugins } from "./plugins/llm/index.ts";
 import { createServer } from "./server.ts";
 
 registerEmailPlugins();
+registerLlmPlugins();
 
 const MIN_KEY_LENGTH = 24;
 

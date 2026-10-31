@@ -4,7 +4,7 @@ import { parse } from "yaml";
 import { ConfigError } from "./core/errors.ts";
 import { Hub, type HubOptions } from "./core/hub.ts";
 import { MemoryQuotaStore, SqliteQuotaStore, type QuotaStore } from "./core/quota.ts";
-import { getPlugin, type PluginContext } from "./core/registry.ts";
+import { getPlugin, listPlugins, type PluginContext } from "./core/registry.ts";
 import type { Limits, ProviderEntry, Route, Strategy } from "./core/types.ts";
 
 export interface RevezoConfig {
@@ -68,10 +68,9 @@ export function buildConfig(raw: unknown, opts: BuildOptions = {}): RevezoConfig
   const store = opts.store ?? makeStore(cfg.storage);
   const hub = new Hub({ store, timeZone: timezone, ...opts.hubOptions });
 
-  const routes = cfg.routes;
-  if (!routes || typeof routes !== "object" || Object.keys(routes).length === 0) {
-    throw new ConfigError("Config needs at least one route under routes:");
-  }
+  // Routes may be empty: providers can be added on the dashboard instead.
+  const routes = cfg.routes ?? {};
+  if (typeof routes !== "object" || Array.isArray(routes)) throw new ConfigError("routes: must be an object of named routes");
   const usedNames = new Set<string>();
   for (const [routeName, r] of Object.entries<any>(routes)) {
     hub.addRoute(buildRoute(routeName, r, env, ctx, usedNames));
@@ -102,10 +101,12 @@ function buildRoute(
   if (!kind) throw new ConfigError(`${where}.kind is required (e.g. email)`);
   const strategy = (r.strategy ?? "priority") as Strategy;
   if (!STRATEGIES.includes(strategy)) throw new ConfigError(`${where}.strategy must be one of ${STRATEGIES.join(", ")}`);
-  if (!Array.isArray(r.providers) || r.providers.length === 0) throw new ConfigError(`${where}.providers must be a non-empty list`);
+  if (!listPlugins().some((p) => p.kind === kind)) throw new ConfigError(`${where}.kind "${kind}" has no provider types yet`);
+  const list = r.providers ?? [];
+  if (!Array.isArray(list)) throw new ConfigError(`${where}.providers must be a list (it may be empty)`);
 
   const seenTypes = new Set<string>();
-  const providers: ProviderEntry[] = r.providers.map((p: any, i: number) => {
+  const providers: ProviderEntry[] = list.map((p: any, i: number) => {
     const at = `${where}.providers[${i}]`;
     const use = String(p?.use ?? "");
     if (!use) throw new ConfigError(`${at}.use is required`);

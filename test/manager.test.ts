@@ -10,9 +10,11 @@ import { EventLog } from "../src/core/events.ts";
 import { MemoryQuotaStore } from "../src/core/quota.ts";
 import { Manager } from "../src/manager.ts";
 import { registerEmailPlugins } from "../src/plugins/email/index.ts";
+import { registerLlmPlugins } from "../src/plugins/llm/index.ts";
 import { createServer } from "../src/server.ts";
 
 registerEmailPlugins();
+registerLlmPlugins();
 
 const API_KEY = "k".repeat(32);
 const SECRETS_KEY = "s".repeat(32);
@@ -277,4 +279,14 @@ test("the live dashboard keeps the strict CSP: nonce on script and style, no inl
   for (const kind of ["email", "sms", "whatsapp", "llm", "scraping", "social", "search"]) assert.ok(html.includes(`"${kind}"`), `sector ${kind}`);
   const second = (await app.request("/dashboard")).headers.get("content-security-policy");
   assert.notEqual(second, csp, "a new nonce per request");
+});
+
+test("the config may start with empty routes that are filled on the dashboard", async () => {
+  const config = buildConfig({ routes: { email: { kind: "email" }, ai: { kind: "llm", providers: [] } } }, { env: {}, store: new MemoryQuotaStore() });
+  assert.deepEqual(config.hub.routes().map((r) => [r.name, r.providers.length]), [["email", 0], ["ai", 0]]);
+  const manager = new Manager({ hub: config.hub, storagePath: tempDb(), secretsKey: SECRETS_KEY, ctx: { fetch: fakeFetch([]) } });
+  managers.push(manager);
+  manager.addProvider({ route: "email", use: "brevo", options: { apiKey: "x" } });
+  assert.equal((await config.hub.send("email", message)).provider, "brevo");
+  assert.throws(() => buildConfig({ routes: { x: { kind: "fax" } } }, { env: {}, store: new MemoryQuotaStore() }), /no provider types/);
 });

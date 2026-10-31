@@ -60,7 +60,7 @@
       ro_no_api_key: "Só leitura: o servidor está rodando sem REVEZO_API_KEY.",
       limitsLine: "{limits} · peso {weight}", perDayShort: "/dia", perMonthShort: "/mês", perHourShort: "/hora", perMinuteShort: "/min",
       "API key": "Chave da API", "Secret key": "Chave secreta", Port: "Porta", User: "Usuário", Password: "Senha",
-      "TLS from the start (port 465)": "TLS desde o início (porta 465)",
+      "TLS from the start (port 465)": "TLS desde o início (porta 465)", Model: "Modelo", "Base URL": "Endereço (URL)",
       err_duplicate_name: "Já existe um provedor ou rota com esse nome.",
       err_duplicate_account: "Esta rota já tem uma conta desse provedor. Somar contas grátis do mesmo provedor viola os termos dele.",
       err_from_file: "Isto vem do revezo.config.yaml: mude lá.", err_read_only: "O painel está só de leitura.",
@@ -746,6 +746,7 @@
       }
       input.type = f.secret ? "password" : f.type === "number" ? "number" : "text";
       if (f.secret) input.autocomplete = "new-password";
+      if (f.placeholder) input.placeholder = f.placeholder;
       input.maxLength = 1000;
       input.required = f.required;
       const label = el("label");

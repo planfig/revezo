@@ -8,6 +8,7 @@ import { dashboardHtml } from "./dashboard.ts";
 import { IdempotencyCache, type StoredResponse } from "./idempotency.ts";
 import { ManageError, Manager } from "./manager.ts";
 import { validateEmail, type EmailMessage } from "./plugins/email/message.ts";
+import { toChatRequest, validateChat, type ChatRequest, type ChatResult } from "./plugins/llm/message.ts";
 
 export interface ServerOptions {
   hub: Hub;
@@ -149,6 +150,50 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
       response = await pending;
     }
     return c.json(response.body as object, response.status as 200);
+  });
+
+  // OpenAI-compatible chat endpoint: point any OpenAI client at Revezo with base URL
+  // http://host:port/v1 and REVEZO_API_KEY as the key. "model" picks an llm route by
+  // name; otherwise the default llm route is used. Each provider uses its own model.
+  app.post("/v1/chat/completions", async (c) => {
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: { message: "invalid JSON", type: "invalid_request_error" } }, 400);
+    }
+    const problems = validateChat(body);
+    if (problems.length) return c.json({ error: { message: problems.join("; "), type: "invalid_request_error" }, problems }, 400);
+
+    const llmRoutes = hub.routes().filter((r) => r.kind === "llm");
+    const asked = c.req.header("x-revezo-route") ?? (typeof body.model === "string" ? body.model : undefined);
+    const route =
+      llmRoutes.find((r) => r.name === asked) ??
+      llmRoutes.find((r) => r.name === defaults.llm) ??
+      (llmRoutes.length === 1 ? llmRoutes[0] : undefined);
+    if (!route) return c.json({ error: { message: "no llm route; add one in the config or on the dashboard", type: "invalid_request_error" } }, 404);
+
+    try {
+      const sent = await hub.send<ChatRequest, ChatResult>(route.name, toChatRequest(body));
+      const r = sent.result;
+      return c.json({
+        id: `chatcmpl-${randomBytes(12).toString("hex")}`,
+        object: "chat.completion",
+        created: Math.floor(Date.now() / 1000),
+        model: `${sent.provider}/${r.model}`,
+        choices: [{ index: 0, message: { role: "assistant", content: r.content }, finish_reason: r.finishReason ?? "stop" }],
+        usage: r.usage,
+        revezo: { route: route.name, provider: sent.provider, attempts: sent.attempts },
+      });
+    } catch (err) {
+      if (err instanceof PermanentFailureError) {
+        return c.json({ error: { message: err.message, type: "invalid_request_error" }, revezo: { attempts: err.attempts } }, 422);
+      }
+      if (err instanceof NoProviderAvailableError) {
+        return c.json({ error: { message: "every provider of the route is full, paused or failing", type: "no_provider_available" }, revezo: { attempts: err.attempts } }, 503);
+      }
+      throw err;
+    }
   });
 
   app.notFound((c) => c.json({ error: "not_found" }, 404));

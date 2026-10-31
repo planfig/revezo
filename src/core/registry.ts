@@ -13,6 +13,8 @@ export interface PluginField {
   required: boolean;
   /** Secret values are stored encrypted and never sent back by the API. */
   secret: boolean;
+  /** Example value shown in the empty input on the dashboard. */
+  placeholder?: string;
 }
 
 export interface Plugin {

@@ -4,11 +4,12 @@ Open source hub that routes API calls across several providers of the same kind.
 It counts each provider's quota (per minute, hour, day, month), and when one runs out
 or fails, it moves to the next one.
 
-The first plugin family is **e-mail** (Brevo, Mailjet, any SMTP server). The core knows
-nothing about e-mail, so the same hub is meant for LLM APIs, social posting, SMS and more.
+Plugin families so far: **e-mail** (Brevo, Mailjet, any SMTP server) and **AI / LLM**
+(OpenRouter, Groq, Ollama). The core knows nothing about either, so the same hub is meant
+for SMS, WhatsApp, scraping, social posting and web search too.
 
-> Status: early MVP (v0.3). E-mail routing and a live dashboard work; suppression lists,
-> queueing and more provider types are on the [roadmap](#roadmap).
+> Status: early MVP (v0.4). E-mail and AI (LLM) routing and a live dashboard work;
+> SMS, WhatsApp, scraping, social posting and web search are on the [roadmap](#roadmap).
 
 ## What it does
 
@@ -70,6 +71,32 @@ Each answer lists the attempts made.
 `GET /v1/quota` shows usage, limits and pauses for every provider, `GET /v1/events` the
 latest attempts (each has an `id`; `?since=<id>` returns only newer ones). `GET /health`
 needs no key.
+
+## Asking an AI model (LLM)
+
+`POST /v1/chat/completions` speaks OpenAI's format, so most tools and libraries that work
+with OpenAI work with Revezo: set the base URL to `http://localhost:8787/v1` and the API
+key to your `REVEZO_API_KEY`.
+
+```bash
+curl http://localhost:8787/v1/chat/completions   -H "Authorization: Bearer $REVEZO_API_KEY"   -H "Content-Type: application/json"   -d '{ "messages": [{ "role": "user", "content": "Write a one-line welcome message" }] }'
+```
+
+- Each provider uses the model set in its options; the `model` field of the request picks
+  an `llm` route by name (or send `X-Revezo-Route`), otherwise `defaults.llm` is used.
+- A provider that answers "rate limit" is paused for the time it asks; "unknown model" or a
+  bad key pauses it for an hour; the next provider answers instead.
+- Each call counts as one request against the provider's limits (free plans mostly count
+  requests). Token counting, streaming, images and tools are not supported yet.
+- The answer adds a `revezo` field with the route, the provider and the attempts.
+
+| Provider | Free plan defaults offered | Options |
+|---|---|---|
+| `openrouter` | 20/min, 50/day (`:free` models) | `apiKey`, `model` |
+| `groq` | 30/min, 1000/day | `apiKey`, `model` |
+| `ollama` | no limit (your own machine) | `baseUrl` (default `http://127.0.0.1:11434`), `model` |
+
+Free plan limits change often and differ per model: check each provider's page and adjust.
 
 ### Avoiding double sends
 
@@ -146,7 +173,8 @@ See [revezo.config.example.yaml](revezo.config.example.yaml). Credentials are wr
 | `storage.sqlite` | Path of the database for counters and for providers added on the dashboard. Omit to keep counters in memory (the dashboard is then read only). |
 | `routes.<name>.kind` | API kind, e.g. `email`. |
 | `routes.<name>.strategy` | `priority`, `weighted` or `least-used`. |
-| `providers[].use` | Provider type (`brevo`, `mailjet`, `smtp`). |
+| `routes.<name>.providers` | The route's providers. May be empty or left out: add them on the dashboard instead. |
+| `providers[].use` | Provider type (`brevo`, `mailjet`, `smtp`, `openrouter`, `groq`, `ollama`). |
 | `providers[].limits` | `perMinute`, `perHour`, `perDay`, `perMonth`. |
 | `providers[].capabilities` | Override flags, e.g. `allowsMarketing: true` for an SMTP server that allows it. |
 
@@ -175,9 +203,10 @@ Free plans exist to let people try a service. Before you route traffic through t
 ## Roadmap
 
 - **v0.3** ✅ live dashboard with wires, provider management without restarts.
+- **v0.4** ✅ AI routing with an OpenAI-compatible endpoint (OpenRouter, Groq, Ollama).
+- **next** token counting and streaming for AI; Cerebras, Gemini, Mistral plugins.
 - **next** shared suppression list fed by provider webhooks (bounces, complaints, unsubscribes); queue for "send tomorrow"; Resend, Mailgun, SMTP2GO, Amazon SES plugins.
 - **next** listmonk integration guide, Cloudflare Workers deployment.
-- **v0.4** LLM routing with token counting and an OpenAI-compatible endpoint (Groq, Cerebras, OpenRouter, Gemini).
 - **v0.5** social posting with a "fan-out" strategy (Meta, LinkedIn, Bluesky, Telegram).
 - **v1.0** SMS/WhatsApp, cost-based routing with spending caps.
 

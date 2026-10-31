@@ -16,6 +16,7 @@ timezone: UTC                # when daily/monthly counters reset
 
 defaults:
   email: email-marketing     # route used by POST /v1/email/send when none is given
+  llm: ai                    # route used by POST /v1/chat/completions when none is given
 
 routes:
   email-marketing:
@@ -37,3 +38,16 @@ routes:
           user: "${SMTP_USER}"
           pass: "${SMTP_PASS}"
         limits: { perDay: 100 }
+
+  ai:
+    kind: llm
+    strategy: least-used     # spread calls over the providers with the most quota left
+    providers:
+      - use: groq
+        options: { apiKey: "${GROQ_API_KEY}", model: llama-3.1-8b-instant }
+        limits: { perMinute: 30, perDay: 1000 }
+      - use: openrouter
+        options: { apiKey: "${OPENROUTER_API_KEY}", model: "meta-llama/llama-3.3-70b-instruct:free" }
+        limits: { perMinute: 20, perDay: 50 }
+      - use: ollama          # models on your own machine: no key, no quota
+        options: { baseUrl: "http://127.0.0.1:11434", model: llama3.2 }

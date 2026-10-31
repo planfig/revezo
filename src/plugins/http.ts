@@ -9,6 +9,7 @@ export async function postJson(
   headers: Record<string, string>,
   body: unknown,
   signal?: AbortSignal,
+  timeoutMs = TIMEOUT_MS,
 ): Promise<unknown> {
   let res: Response;
   try {
@@ -16,7 +17,7 @@ export async function postJson(
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json", ...headers },
       body: JSON.stringify(body),
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
     throw new ProviderError("temporary", `network error: ${(err as Error).message}`);

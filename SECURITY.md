@@ -20,6 +20,7 @@ button on this repository, not in a public issue.
 | Header injection (hidden Bcc, spoofed From) | Subjects, names and header values may not contain line breaks; callers may only add `X-...` and a few harmless headers. |
 | Oversized requests | Bodies over 1 MB are refused; at most 50 recipients per message. |
 | Duplicate e-mails after a timeout | `Idempotency-Key` support. |
+| Prompts and answers | `/v1/chat/completions` keeps neither: logs and the dashboard only see route, provider and outcome. Messages are checked (roles, text only, at most 200 messages and 400,000 characters). |
 | Personal data in logs | Logs and the dashboard carry provider names, outcomes and counts. E-mail addresses and phone numbers in provider error text are replaced by `[email]` / `[number]`. |
 | Dashboard attacks (XSS, clickjacking) | Strict Content-Security-Policy with a per-request nonce for the one script and the one stylesheet, no inline style attributes or event handlers, `X-Frame-Options: DENY`, data written as text only, key kept in `sessionStorage`. |
 | API keys added on the dashboard | Stored in `storage.sqlite` encrypted with AES-256-GCM. The key is derived from `REVEZO_SECRETS_KEY` (at least 24 characters) with scrypt and a random salt; each value is bound to its provider name. A wrong key stops the server at start instead of loading garbage. |
@@ -32,8 +33,8 @@ button on this repository, not in a public issue.
 
 ## Known limits
 
-- Whoever has `REVEZO_API_KEY` can add providers, including an SMTP host of their choice
-  that the server will connect to. Treat the key like an admin password.
+- Whoever has `REVEZO_API_KEY` can add providers, including an SMTP host or an Ollama
+  address of their choice that the server will connect to. Treat the key like an admin password.
 - `REVEZO_SECRETS_KEY` protects a copied database file, not a compromised server: the
   running process holds the keys in memory to send mail. Back the key up apart from the
   database; losing it means adding the dashboard's providers again.
