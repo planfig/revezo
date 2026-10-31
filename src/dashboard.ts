@@ -35,15 +35,15 @@ export function dashboardHtml(nonce: string): string {
     <p id="error" hidden></p>
   </section>
   <div id="app" hidden>
-    <section class="card">
+    <div class="live">
       <div class="row spread"><h2 data-t="liveTitle"></h2><span class="muted" data-t="liveHelp"></span></div>
-      <div class="diagram" id="diagram" role="img" aria-labelledby="diagramDesc"></div>
-      <p class="muted" id="diagramDesc"></p>
+      <nav class="sectors" id="sectorNav" aria-label="Sectors"></nav>
+      <div id="visors"></div>
       <div class="legend">
         <span class="ok" data-t="legOk"></span><span class="warn" data-t="legHigh"></span>
         <span class="bad" data-t="legFull"></span><span class="off" data-t="legUser"></span>
       </div>
-    </section>
+    </div>
     <section class="card" id="manage">
       <h2 data-t="manageTitle"></h2>
       <p class="notice" id="readonly" hidden></p>

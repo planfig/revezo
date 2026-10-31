@@ -274,6 +274,7 @@ test("the live dashboard keeps the strict CSP: nonce on script and style, no inl
   assert.ok(!/\son[a-z]+\s*=\s*["']/i.test(html), "no inline event handlers");
   assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(html), "data is written as text only");
   assert.ok(html.includes("prefers-reduced-motion"));
+  for (const kind of ["email", "sms", "whatsapp", "llm", "scraping", "social", "search"]) assert.ok(html.includes(`"${kind}"`), `sector ${kind}`);
   const second = (await app.request("/dashboard")).headers.get("content-security-policy");
   assert.notEqual(second, csp, "a new nonce per request");
 });

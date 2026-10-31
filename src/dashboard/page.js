@@ -14,7 +14,11 @@
       sent: "sent", skipped_full: "skipped: full", skipped_blocked: "skipped: paused (errors)", skipped_capability: "skipped: not allowed",
       skipped_paused: "skipped: paused by you", failed: "failed", none: "No attempts yet.",
       legOk: "free", legHigh: "80% or more of the limit", legFull: "full or paused by errors", legUser: "paused by you",
-      diagramDesc: "{providers} providers in {routes} routes. {sent} sent today.", noProviders: "no providers yet",
+      noProviders: "no providers yet", sectorsNav: "Sectors", vstats: "{routes} routes · {apis} APIs · {sent} sent today", vstats1: "1 route · {apis} APIs · {sent} sent today", sentToday: "{n} sent today",
+      soonTitle: "No APIs in this sector yet", soonText: "Coming in a future version.",
+      sec_email: "E-mail", sec_sms: "SMS", sec_whatsapp: "WhatsApp", sec_llm: "AI (LLM)", sec_scraping: "Scraping", sec_social: "Social posting", sec_search: "Web search",
+      hint_sms: "Planned: SMS gateways.", hint_whatsapp: "Planned: WhatsApp Business APIs.", hint_llm: "Planned: OpenRouter, Groq, Ollama.",
+      hint_scraping: "Planned: scraping APIs.", hint_social: "Planned: Meta, LinkedIn, Bluesky, Telegram.", hint_search: "Planned: web search APIs.",
       manageTitle: "Manage APIs", fromFile: "from the file", fromPanel: "added here", default: "default",
       priority: "priority", weighted: "by weight", "least-used": "least used", strategy: "Strategy", kind: "Kind",
       up: "Move up", down: "Move down", pause: "Pause", resume: "Resume", edit: "Edit", remove: "Remove", save: "Save", cancel: "Cancel",
@@ -38,7 +42,11 @@
       sent: "enviado", skipped_full: "pulado: cheio", skipped_blocked: "pulado: pausado (erro)", skipped_capability: "pulado: não permitido",
       skipped_paused: "pulado: pausado por você", failed: "falhou", none: "Nenhuma tentativa ainda.",
       legOk: "livre", legHigh: "80% ou mais do limite", legFull: "cheio ou pausado por erro", legUser: "pausado por você",
-      diagramDesc: "{providers} provedores em {routes} rotas. {sent} envios hoje.", noProviders: "nenhum provedor ainda",
+      noProviders: "nenhum provedor ainda", sectorsNav: "Setores", vstats: "{routes} rotas · {apis} APIs · {sent} envios hoje", vstats1: "1 rota · {apis} APIs · {sent} envios hoje", sentToday: "{n} envios hoje",
+      soonTitle: "Ainda sem APIs neste setor", soonText: "Chega numa próxima versão.",
+      sec_email: "E-mail", sec_sms: "SMS", sec_whatsapp: "WhatsApp", sec_llm: "IA (LLM)", sec_scraping: "Raspagem (scraping)", sec_social: "Redes sociais", sec_search: "Pesquisa na web",
+      hint_sms: "Planejado: gateways de SMS.", hint_whatsapp: "Planejado: APIs do WhatsApp Business.", hint_llm: "Planejado: OpenRouter, Groq, Ollama.",
+      hint_scraping: "Planejado: APIs de raspagem.", hint_social: "Planejado: Meta, LinkedIn, Bluesky, Telegram.", hint_search: "Planejado: APIs de pesquisa na web.",
       manageTitle: "Gerir APIs", fromFile: "do arquivo", fromPanel: "do painel", default: "padrão",
       priority: "prioridade", weighted: "por peso", "least-used": "menos usado", strategy: "Estratégia", kind: "Tipo de API",
       up: "Subir", down: "Descer", pause: "Pausar", resume: "Retomar", edit: "Editar", remove: "Remover", save: "Salvar", cancel: "Cancelar",
@@ -103,7 +111,6 @@
   let recent = [];
   let timer = null;
   let busy = false;
-  let diagram = null; // { sig, svg, inWire, wires: Map, nodes: Map, dots, layer }
   let manageSig = "";
   let editing = null; // provider name whose edit form is open
 
@@ -139,215 +146,338 @@
   const stateText = (p, s) => t("st_" + s, { until: p.blocked ? fmtUntil(p.blocked.until) : "" });
   const usageText = (used, limit) => (limit === undefined ? num(used) + " · " + t("noLimit") : num(used) + " / " + num(limit));
 
-  // ---------- live diagram ----------
+  // ---------- live view: one visor per sector ----------
 
-  function layout(routes, W) {
-    const vertical = W < 640;
-    const BOX_H = 96, GAP = 12, LABEL_H = 24, GROUP_GAP = 18;
-    const all = routes.flatMap((r) => r.providers);
-    const nodes = [];
-    const groups = [];
-    let clients, hub, boxX, boxW, y, rail = null;
-    if (!vertical) {
-      boxW = Math.round(Math.min(320, Math.max(230, W * 0.38)));
-      boxX = W - boxW - 2;
-      y = 4;
+  const SECTORS = ["email", "sms", "whatsapp", "llm", "scraping", "social", "search"];
+  const visors = new Map(); // kind -> { section, box, stats, sr, sig, parts... }
+  const selected = new Map(); // kind -> route name shown in the fan
+  let sectorSig = "";
+  let routeKind = new Map();
+
+  const sectorTitle = (kind) => (T[lang]["sec_" + kind] || T.en["sec_" + kind] ? t("sec_" + kind) : kind);
+
+  function sectorsOf(routes) {
+    const kinds = SECTORS.slice();
+    for (const r of routes) if (!kinds.includes(r.kind)) kinds.push(r.kind);
+    return kinds.map((kind) => ({ kind, routes: routes.filter((r) => r.kind === kind) }));
+  }
+
+  /** Builds the sector chips and one empty visor section per sector, when the list changes. */
+  function syncSectors(sectors) {
+    const sig = sectors.map((s) => s.kind).join(",");
+    if (sig === sectorSig) return;
+    sectorSig = sig;
+    for (const v of visors.values()) v.dots.forEach((d) => cancelAnimationFrame(d));
+    visors.clear();
+    const nav = $("sectorNav");
+    const box = $("visors");
+    nav.replaceChildren();
+    box.replaceChildren();
+    sectors.forEach((s, i) => {
+      const id = "sector-" + i;
+      const chip = el("a", "chip");
+      chip.href = "#" + id;
+      const count = el("span", "chip-n");
+      chip.append(el("span", "", sectorTitle(s.kind)), count);
+      nav.append(chip);
+      const section = el("section", "visor pal-" + (i % 7));
+      section.id = id;
+      const head = el("div", "vhead");
+      const titles = el("div");
+      titles.append(el("h2", "", sectorTitle(s.kind)), el("p", "vstats"));
+      head.append(titles);
+      const vbox = el("div", "vbox");
+      const sr = el("p", "sr");
+      section.append(head, vbox, sr);
+      box.append(section);
+      visors.set(s.kind, { index: i, section, box: vbox, stats: titles.lastChild, sr, chip, count, sig: "", dots: new Set(), energy: 0 });
+    });
+  }
+
+  function pickRoute(s) {
+    const want = selected.get(s.kind);
+    return s.routes.find((r) => r.route === want) || s.routes.find((r) => r.isDefault) || s.routes[0];
+  }
+
+  function visorLayout(s, W) {
+    const wide = W >= 760;
+    const sel = pickRoute(s);
+    const provs = sel ? sel.providers : [];
+    const n = provs.length;
+    const m = s.routes.length;
+    const L = { W, wide, sel, cards: [], nodes: [] };
+    if (!m) {
+      L.H = wide ? 170 : 200;
+      L.orb = wide ? { x: Math.round(W * 0.14), y: L.H / 2, r: 30 } : { x: W / 2, y: 70, r: 28 };
+      return L;
+    }
+    if (wide) {
+      const cardW = 190, cardH = 64, gap = 14;
+      L.H = Math.max(400, n * 44 + 90, m * (cardH + gap) + 80);
+      L.orb = { x: Math.round(W * 0.14), y: L.H / 2, r: 46 };
+      const cardX = Math.round(W * 0.34);
+      let y = L.H / 2 - (m * cardH + (m - 1) * gap) / 2;
+      for (const r of s.routes) {
+        const cy = y + cardH / 2;
+        const x0 = L.orb.x + L.orb.r + 26;
+        L.cards.push({ r, x: cardX, y, w: cardW, h: cardH,
+          d: "M" + x0 + "," + L.orb.y + " C" + (x0 + cardX) / 2 + "," + L.orb.y + " " + (x0 + cardX) / 2 + "," + cy + " " + cardX + "," + cy });
+        y += cardH + gap;
+      }
+      const card = L.cards.find((c) => c.r === sel);
+      const cx = card.x + card.w, cy = card.y + card.h / 2;
+      const x1 = W - 210, x0 = cx + 80;
+      const a = n > 1 ? Math.min(1.2, 0.2 + n * 0.08) : 0;
+      const spread = Math.min(L.H / 2 - 34, n * 22);
+      const Rx = a ? (x1 - x0) / (1 - Math.cos(a)) : 0;
+      const Ry = a ? spread / Math.sin(a) : 0;
+      provs.forEach((p, i) => {
+        const th = n > 1 ? -a + (2 * a * i) / (n - 1) : 0;
+        const x = n > 1 ? x1 - Rx + Rx * Math.cos(th) : x1;
+        const y2 = L.H / 2 + Ry * Math.sin(th);
+        const fade = n > 8 ? 1 - 0.5 * Math.pow(Math.abs(th) / a, 3) : 1;
+        L.nodes.push({ p, x, y: y2, fade, maxChars: 22,
+          d: "M" + cx + "," + cy + " C" + (cx + (x - cx) * 0.45) + "," + cy + " " + (x - (x - cx) * 0.35) + "," + y2 + " " + (x - 7) + "," + y2 });
+      });
+      L.emptyAt = { x: x0, y: cy };
     } else {
-      clients = { x: W / 2 - 64, y: 4, w: 128, h: 50 };
-      hub = { x: 2, y: 84, w: W - 4, h: 54 };
-      const n = Math.max(1, all.length);
-      const step = Math.min(10, 70 / n);
-      rail = { x0: 14, step };
-      boxX = Math.round(rail.x0 + n * step + 12);
-      boxW = W - boxX - 2;
-      y = hub.y + hub.h + 18;
-    }
-    let i = 0;
-    for (const r of routes) {
-      groups.push({ route: r, x: boxX, y: y + 15 });
-      y += LABEL_H;
-      if (!r.providers.length) {
-        groups[groups.length - 1].empty = { x: boxX, y: y + 12 };
-        y += 26;
+      L.orb = { x: W / 2, y: 82, r: 36 };
+      const cardH = 54, gap = 10, cardX = 26, cardW = W - cardX - 2;
+      let y = 170;
+      const ob = L.orb.y + L.orb.r + 22;
+      for (const r of s.routes) {
+        const cy = y + cardH / 2;
+        L.cards.push({ r, x: cardX, y, w: cardW, h: cardH,
+          d: "M" + W / 2 + "," + ob + " C" + W / 2 + "," + (ob + 26) + " 10," + (ob + 6) + " 10," + (ob + 36) + " L10," + (cy - 8) + " Q10," + cy + " 18," + cy + " L" + cardX + "," + cy });
+        y += cardH + gap;
       }
-      for (const p of r.providers) {
-        nodes.push({ p, route: r.route, i: i++, x: boxX, y, w: boxW, h: BOX_H });
-        y += BOX_H + GAP;
-      }
-      y += GROUP_GAP;
+      const card = L.cards.find((c) => c.r === sel);
+      const top = card.y + card.h;
+      y += 20;
+      const step = Math.min(10, 60 / Math.max(1, n));
+      const nodeX = cardX + 22 + n * step + 10;
+      provs.forEach((p, i) => {
+        const sx = cardX + 22 + i * step;
+        const cy = y + 18;
+        L.nodes.push({ p, x: nodeX, y: cy, fade: 1, maxChars: Math.floor((W - nodeX - 20) / 8),
+          d: "M" + sx + "," + top + " L" + sx + "," + (cy - 10) + " Q" + sx + "," + cy + " " + (sx + 10) + "," + cy + " L" + (nodeX - 7) + "," + cy });
+        y += 52;
+      });
+      L.emptyAt = { x: cardX + 4, y: y + 10 };
+      L.H = Math.max(y + 20, 260);
     }
-    const H = Math.max(y, vertical ? 200 : 220);
-    if (!vertical) {
-      hub = { x: Math.round(Math.max(150, W * 0.3)), y: H / 2 - 42, w: 132, h: 84 };
-      clients = { x: 2, y: H / 2 - 32, w: 116, h: 64 };
-    }
-    for (const n of nodes) {
-      const cy = n.y + n.h / 2;
-      if (!vertical) {
-        const x0 = hub.x + hub.w, y0 = hub.y + hub.h / 2, mx = (x0 + n.x) / 2;
-        n.d = "M" + x0 + "," + y0 + " C" + mx + "," + y0 + " " + mx + "," + cy + " " + n.x + "," + cy;
-      } else {
-        const sx = rail.x0 + n.i * rail.step, y0 = hub.y + hub.h;
-        n.d = "M" + sx + "," + y0 + " L" + sx + "," + (cy - 10) + " Q" + sx + "," + cy + " " + (sx + 10) + "," + cy + " L" + n.x + "," + cy;
-      }
-    }
-    const inD = !vertical
-      ? "M" + (clients.x + clients.w) + "," + (clients.y + clients.h / 2) + " L" + hub.x + "," + (hub.y + hub.h / 2)
-      : "M" + (W / 2) + "," + (clients.y + clients.h) + " L" + (W / 2) + "," + hub.y;
-    return { W, H, vertical, clients, hub, nodes, groups, inD };
+    return L;
   }
 
-  function buildDiagram(routes) {
-    const box = $("diagram");
-    const W = Math.max(300, Math.floor(box.clientWidth || 320));
-    const L = layout(routes, W);
+  function buildVisor(s, v) {
+    const W = Math.max(300, Math.floor(v.box.clientWidth || 320));
+    const L = visorLayout(s, W);
     const svg = sv("svg", { viewBox: "0 0 " + L.W + " " + L.H, width: L.W, height: L.H, "aria-hidden": "true", focusable: "false" });
+    const gid = "orbg-" + v.index;
+    const defs = sv("defs");
+    const grad = sv("radialGradient", { id: gid, cx: "38%", cy: "34%", r: "70%" });
+    grad.append(sv("stop", { offset: "0%" }, "orb-s1"), sv("stop", { offset: "55%" }, "orb-s2"), sv("stop", { offset: "100%" }, "orb-s3"));
+    defs.append(grad);
     const wiresG = sv("g"), nodesG = sv("g"), layer = sv("g");
-    svg.append(wiresG, nodesG, layer);
+    svg.append(defs, wiresG, nodesG, layer);
 
-    const inWire = sv("path", { d: L.inD }, "wire w-in");
-    wiresG.append(inWire);
-    const wires = new Map();
-    const nodes = new Map();
-    for (const n of L.nodes) {
-      const wire = sv("path", { d: n.d }, "wire w-ok");
+    // the sector's core: halo, ring of activity ticks, glowing orb
+    const o = L.orb;
+    nodesG.append(sv("circle", { cx: o.x, cy: o.y, r: o.r * 2.3 }, "halo"), sv("circle", { cx: o.x, cy: o.y, r: o.r * 1.55 }, "halo2"));
+    const ring = sv("g", {}, "ring" + (s.routes.length ? "" : " off"));
+    const ticks = [];
+    for (let i = 0; i < 72; i++) {
+      const line = sv("line", {}, "tick");
+      ring.append(line);
+      ticks.push({ line, ang: (i / 72) * Math.PI * 2 });
+    }
+    nodesG.append(ring, sv("circle", { cx: o.x, cy: o.y, r: o.r, fill: "url(#" + gid + ")" }, "orb" + (s.routes.length ? "" : " off")));
+    const coreSub = sv("text", { x: o.x, y: o.y + o.r * 1.55 + 26, "text-anchor": "middle" }, "v-pill");
+    nodesG.append(coreSub);
+
+    const parts = { svg, layer, L, ticks, coreSub, cardWires: new Map(), cards: new Map(), wires: new Map(), nodes: new Map() };
+    if (!s.routes.length) {
+      const tx = L.wide ? Math.round(W * 0.38) : 16;
+      const ty = L.wide ? L.H / 2 - 4 : 158;
+      nodesG.append(sv("text", { x: tx, y: ty }, "v-name", t("soonTitle")),
+        sv("text", { x: tx, y: ty + 22 }, "v-muted", clip(t("hint_" + s.kind) === "hint_" + s.kind ? t("soonText") : t("hint_" + s.kind), Math.floor((W - tx) / 7))));
+    }
+    for (const c of L.cards) {
+      const wire = sv("path", { d: c.d }, "vwire w-in");
       wiresG.append(wire);
-      wires.set(n.p.name, wire);
-
-      const g = sv("g");
-      const rect = sv("rect", { x: n.x, y: n.y, width: n.w, height: n.h, rx: 8 }, "box");
-      const maxChars = Math.floor((n.w - 24) / 7.4);
-      const name = sv("text", { x: n.x + 12, y: n.y + 20 }, "t-name", clip(n.p.name, maxChars));
-      const meta = sv("text", { x: n.x + 12, y: n.y + 37 }, "t-meta");
-      const dayT = sv("text", { x: n.x + 12, y: n.y + 56 }, "t-num");
-      const monthT = sv("text", { x: n.x + n.w - 12, y: n.y + 56, "text-anchor": "end" }, "t-num");
-      const track = sv("rect", { x: n.x + 12, y: n.y + 63, width: n.w - 24, height: 5, rx: 2.5 }, "track");
-      const fill = sv("rect", { x: n.x + 12, y: n.y + 63, width: 0, height: 5, rx: 2.5 }, "fill");
-      const st = sv("text", { x: n.x + 12, y: n.y + 85 }, "t-state");
-      g.append(rect, name, meta, dayT, monthT, track, fill, st);
+      parts.cardWires.set(c.r.route, wire);
+      const g = sv("g", { tabindex: 0, role: "button" }, "vcard" + (c.r === L.sel ? " sel" : ""));
+      g.setAttribute("aria-label", c.r.route);
+      const rect = sv("rect", { x: c.x, y: c.y, width: c.w, height: c.h, rx: 9 }, "vcard-bg");
+      const big = sv("text", { x: c.x + 14, y: c.y + (L.wide ? 30 : 24) }, "v-big");
+      const label = sv("text", { x: c.x + 14, y: c.y + (L.wide ? 50 : 42) }, "v-muted", clip(c.r.route, Math.floor((c.w - 28) / 14)));
+      const side = sv("text", { x: c.x + c.w - 12, y: c.y + (L.wide ? 50 : 42), "text-anchor": "end" }, "v-muted");
+      g.append(rect, big, label, side);
+      const choose = () => { selected.set(s.kind, c.r.route); v.sig = ""; renderVisors(state.routes); };
+      g.addEventListener("click", choose);
+      g.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); choose(); } });
       nodesG.append(g);
-      nodes.set(n.p.name, { n, rect, meta, dayT, monthT, fill, st, maxChars });
+      parts.cards.set(c.r.route, { big, side, c });
     }
-    for (const gr of L.groups) {
-      const label = gr.route.route + " · " + t(gr.route.strategy) + (gr.route.isDefault ? " · " + t("default") : "");
-      nodesG.append(sv("text", { x: gr.x + 2, y: gr.y }, "t-group", clip(label.toUpperCase(), Math.floor(L.W / 7))));
-      if (gr.empty) nodesG.append(sv("text", { x: gr.empty.x + 2, y: gr.empty.y }, "t-meta", t("noProviders")));
+    if (L.sel && !L.nodes.length) nodesG.append(sv("text", { x: L.emptyAt.x, y: L.emptyAt.y + 4 }, "v-muted", t("noProviders")));
+    for (const n of L.nodes) {
+      const wire = sv("path", { d: n.d }, "vwire w-ok");
+      wiresG.append(wire);
+      parts.wires.set(n.p.name, wire);
+      const g = sv("g", {}, "vnode");
+      if (n.fade < 1) g.style.opacity = String(n.fade);
+      const glow = sv("circle", { cx: n.x, cy: n.y, r: 11 }, "nglow");
+      const dot = sv("circle", { cx: n.x, cy: n.y, r: 5.5 }, "ndot");
+      const name = sv("text", { x: n.x + 14, y: n.y - 3 }, "v-name", clip(n.p.name, n.maxChars));
+      const pillBg = sv("rect", { x: n.x + 14, y: n.y + 5, width: 92, height: 15, rx: 4 }, "pill-bg");
+      const pill = sv("text", { x: n.x + 19, y: n.y + 16 }, "v-pill");
+      const segs = [];
+      for (let i = 0; i < 5; i++) {
+        const r = sv("rect", { x: n.x + 112 + i * 9, y: n.y + 8, width: 7, height: 9, rx: 1.5 }, "seg");
+        segs.push(r);
+        g.append(r);
+      }
+      g.append(glow, dot, name, pillBg, pill);
+      nodesG.append(g);
+      parts.nodes.set(n.p.name, { n, glow, dot, pill, pillBg, segs });
     }
-    const c = L.clients;
-    nodesG.append(
-      sv("rect", { x: c.x, y: c.y, width: c.w, height: c.h, rx: 8 }, "box"),
-      sv("text", { x: c.x + c.w / 2, y: c.y + c.h / 2 - 2, "text-anchor": "middle" }, "t-name", t("clients")),
-      sv("text", { x: c.x + c.w / 2, y: c.y + c.h / 2 + 15, "text-anchor": "middle" }, "t-meta", t("clientsSub")),
-    );
-    const h = L.hub;
-    const hubSub = sv("text", { x: h.x + h.w / 2, y: h.y + h.h / 2 + 16, "text-anchor": "middle" }, "t-hubsub");
-    nodesG.append(
-      sv("rect", { x: h.x, y: h.y, width: h.w, height: h.h, rx: 10 }, "hubbox"),
-      sv("text", { x: h.x + h.w / 2, y: h.y + h.h / 2 - 2, "text-anchor": "middle" }, "t-hub", t("hub")),
-      hubSub,
-    );
-    box.replaceChildren(svg);
-    if (diagram) diagram.dots.forEach((d) => cancelAnimationFrame(d));
-    diagram = { svg, inWire, wires, nodes, hubSub, layer, dots: new Set(), L };
+    v.dots.forEach((d) => cancelAnimationFrame(d));
+    v.dots.clear();
+    v.box.replaceChildren(svg);
+    Object.assign(v, parts);
   }
 
-  function updateDiagram(routes) {
-    const all = routes.flatMap((r) => r.providers);
+  function updateVisor(s, v) {
+    const all = s.routes.flatMap((r) => r.providers);
+    const total = all.reduce((sum, p) => sum + p.usage.day, 0);
     const maxDay = Math.max(1, ...all.map((p) => p.usage.day));
-    const total = all.reduce((s, p) => s + p.usage.day, 0);
-    // On phones the wires run side by side down a rail, so they stay thinner than the gap.
-    const maxExtra = diagram.L.vertical ? Math.max(0, Math.min(10, 70 / Math.max(1, all.length)) - 4) : 10;
-    diagram.inWire.style.strokeWidth = (total > 0 ? 3 + Math.min(9, Math.sqrt(total)) : 2) + "px";
-    diagram.hubSub.textContent = t("hubSub", { routes: routes.length, sent: num(total) });
-    for (const r of routes) {
+    v.count.textContent = String(all.length);
+    v.chip.classList.toggle("empty", !s.routes.length);
+    v.stats.textContent = s.routes.length ? t(s.routes.length === 1 ? "vstats1" : "vstats", { routes: s.routes.length, apis: all.length, sent: num(total) }) : "";
+    v.sr.textContent = v.stats.textContent || t("soonTitle");
+    v.coreSub.textContent = s.routes.length ? t("sentToday", { n: num(total) }) : "";
+    // activity ring: longer ticks when this sector is busy
+    const o = v.L.orb;
+    const busy = Math.min(1, v.energy / 6);
+    v.energy *= 0.6;
+    for (const tk of v.ticks) {
+      const len = 3 + (s.routes.length ? 4 * Math.abs(Math.sin(tk.ang * 5 + total)) + 14 * busy * Math.random() : 0);
+      const r0 = o.r + 9;
+      tk.line.setAttribute("x1", (o.x + Math.cos(tk.ang) * r0).toFixed(1));
+      tk.line.setAttribute("y1", (o.y + Math.sin(tk.ang) * r0).toFixed(1));
+      tk.line.setAttribute("x2", (o.x + Math.cos(tk.ang) * (r0 + len)).toFixed(1));
+      tk.line.setAttribute("y2", (o.y + Math.sin(tk.ang) * (r0 + len)).toFixed(1));
+    }
+    for (const r of s.routes) {
+      const card = v.cards.get(r.route);
+      const sent = r.providers.reduce((sum, p) => sum + p.usage.day, 0);
+      if (card) {
+        card.big.textContent = num(r.providers.length) + " API" + (r.providers.length === 1 ? "" : "s");
+        card.side.textContent = t(r.strategy) + " · " + num(sent);
+      }
+      const cw = v.cardWires.get(r.route);
+      if (cw) cw.style.strokeWidth = (sent > 0 ? 1.5 + Math.min(5, Math.sqrt(sent) / 3) : 1.2) + "px";
       for (const p of r.providers) {
-        const s = provState(p);
-        const wire = diagram.wires.get(p.name);
-        const node = diagram.nodes.get(p.name);
-        if (!wire || !node) continue;
-        wire.setAttribute("class", "wire w-" + s);
-        wire.style.strokeWidth = (p.usage.day > 0 ? 2 + maxExtra * Math.sqrt(p.usage.day / maxDay) : 2) + "px";
-        node.rect.setAttribute("class", "box b-" + s);
-        node.meta.textContent = clip(p.type + " · " + t(p.source === "panel" ? "fromPanel" : "fromFile"), node.maxChars + 6);
-        node.dayT.textContent = t("today") + " " + usageText(p.usage.day, p.limits.perDay);
-        node.monthT.textContent = t("month") + " " + usageText(p.usage.month, p.limits.perMonth);
-        const limit = p.limits.perDay ?? p.limits.perMonth;
+        const node = v.nodes.get(p.name);
+        const wire = v.wires.get(p.name);
+        if (!node || !wire) continue;
+        const st = provState(p);
+        wire.setAttribute("class", "vwire w-" + st);
+        wire.style.strokeWidth = (p.usage.day > 0 ? 1.4 + 3.6 * Math.sqrt(p.usage.day / maxDay) : 1.2) + "px";
+        node.dot.setAttribute("class", "ndot f-" + st);
+        node.glow.setAttribute("class", "nglow f-" + st);
+        node.pill.textContent = t("today") + " " + usageText(p.usage.day, p.limits.perDay);
+        node.pillBg.setAttribute("width", String(Math.max(70, node.pill.textContent.length * 6.2 + 10)));
+        const lim = p.limits.perDay ?? p.limits.perMonth;
         const used = p.limits.perDay !== undefined ? p.usage.day : p.usage.month;
-        const ratio = limit ? Math.min(1, used / limit) : 0;
-        node.fill.setAttribute("width", String(Math.round((node.n.w - 24) * ratio)));
-        node.fill.setAttribute("class", "fill s-" + s);
-        node.st.setAttribute("class", "t-state s-" + s);
-        node.st.textContent = clip(stateText(p, s), node.maxChars + 4);
+        const filled = lim ? Math.ceil(Math.min(1, used / lim) * 5) : 0;
+        const segX = node.n.x + 14 + Math.max(70, node.pill.textContent.length * 6.2 + 10) + 6;
+        node.segs.forEach((sg, i) => {
+          sg.setAttribute("x", String(segX + i * 9));
+          sg.setAttribute("class", "seg" + (i < filled ? " f-" + st : ""));
+        });
       }
     }
-    $("diagramDesc").textContent = t("diagramDesc", { providers: all.length, routes: routes.length, sent: num(total) });
   }
 
-  function renderDiagram(routes) {
-    const W = Math.floor($("diagram").clientWidth || 320);
-    const sig = JSON.stringify([Math.round(W / 40), routes.map((r) => [r.route, r.strategy, r.isDefault, r.providers.map((p) => p.name)])]);
-    if (!diagram || diagram.sig !== sig) {
-      buildDiagram(routes);
-      diagram.sig = sig;
+  function renderVisors(routes) {
+    routeKind = new Map(routes.map((r) => [r.route, r.kind]));
+    const sectors = sectorsOf(routes);
+    syncSectors(sectors);
+    for (const s of sectors) {
+      const v = visors.get(s.kind);
+      const W = Math.floor(v.box.clientWidth || 320);
+      const sel = pickRoute(s);
+      const sig = JSON.stringify([Math.round(W / 40), sel && sel.route, s.routes.map((r) => [r.route, r.providers.map((p) => p.name)])]);
+      if (sig !== v.sig) {
+        buildVisor(s, v);
+        v.sig = sig;
+      }
+      updateVisor(s, v);
     }
-    updateDiagram(routes);
   }
 
-  /** A dot running Clients → Hub → provider for one sent message. */
-  function sendDot(provider, delay) {
-    if (!diagram) return;
-    const wire = diagram.wires.get(provider);
-    if (!wire) return;
-    const dot = sv("circle", { r: 5, cx: -20, cy: -20 }, "dot");
+  function runDot(v, legs, delay) {
+    const dot = sv("circle", { r: 4.5, cx: -20, cy: -20 }, "vdot");
     if (motion.matches) {
-      const len = wire.getTotalLength();
-      const pt = wire.getPointAtLength(len);
-      dot.setAttribute("cx", String(pt.x - 8));
+      const last = legs[legs.length - 1];
+      const pt = last.getPointAtLength(last.getTotalLength());
+      dot.setAttribute("cx", String(pt.x));
       dot.setAttribute("cy", String(pt.y));
-      diagram.layer.append(dot);
+      v.layer.append(dot);
       setTimeout(() => dot.remove(), 1500);
       return;
     }
-    const legs = [diagram.inWire, wire];
     const lens = legs.map((w) => w.getTotalLength());
-    const total = lens[0] + lens[1];
-    const DURATION = 1400;
+    const total = lens.reduce((a, b) => a + b, 0);
+    const DURATION = 1500;
+    const layer = v.layer;
     let start = null;
-    const layer = diagram.layer;
-    const dots = diagram.dots;
     let raf = 0;
     const step = (now) => {
-      dots.delete(raf);
+      v.dots.delete(raf);
       if (start === null) start = now + delay;
       const k = (now - start) / DURATION;
       if (k >= 1 || !layer.isConnected) { dot.remove(); return; }
       if (k >= 0) {
         if (!dot.isConnected) layer.append(dot);
-        const eased = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
-        const d = eased * total;
-        const pt = d <= lens[0] ? legs[0].getPointAtLength(d) : legs[1].getPointAtLength(d - lens[0]);
+        let d = (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2) * total;
+        let i = 0;
+        while (i < legs.length - 1 && d > lens[i]) { d -= lens[i]; i++; }
+        const pt = legs[i].getPointAtLength(d);
         dot.setAttribute("cx", String(pt.x));
         dot.setAttribute("cy", String(pt.y));
       }
       raf = requestAnimationFrame(step);
-      dots.add(raf);
+      v.dots.add(raf);
     };
     raf = requestAnimationFrame(step);
-    dots.add(raf);
+    v.dots.add(raf);
   }
 
-  /** A red mark in the middle of the provider's wire for a failed attempt. */
-  function failMark(provider) {
-    if (!diagram) return;
-    const wire = diagram.wires.get(provider);
+  /** A dot for one sent message: core → route card → provider (when that route is open). */
+  function sendDot(e, delay) {
+    const v = visors.get(routeKind.get(e.route));
+    if (!v || !v.cardWires) return;
+    v.energy += 1;
+    const cw = v.cardWires.get(e.route);
+    if (!cw) return;
+    const pw = v.L.sel && v.L.sel.route === e.route ? v.wires.get(e.provider) : undefined;
+    runDot(v, pw ? [cw, pw] : [cw], delay);
+  }
+
+  /** A red mark on the provider's wire for a failed attempt. */
+  function failMark(e) {
+    const v = visors.get(routeKind.get(e.route));
+    const wire = v && v.wires && v.wires.get(e.provider);
     if (!wire) return;
-    const pt = wire.getPointAtLength(wire.getTotalLength() * 0.6);
+    const pt = wire.getPointAtLength(wire.getTotalLength() * 0.7);
     const g = sv("g", {}, "fail");
     g.append(
-      sv("circle", { cx: pt.x, cy: pt.y, r: 9 }, "failmark"),
-      sv("path", { d: "M" + (pt.x - 3.5) + "," + (pt.y - 3.5) + " L" + (pt.x + 3.5) + "," + (pt.y + 3.5) + " M" + (pt.x + 3.5) + "," + (pt.y - 3.5) + " L" + (pt.x - 3.5) + "," + (pt.y + 3.5) }, "failx"),
+      sv("circle", { cx: pt.x, cy: pt.y, r: 8 }, "failmark"),
+      sv("path", { d: "M" + (pt.x - 3) + "," + (pt.y - 3) + " L" + (pt.x + 3) + "," + (pt.y + 3) + " M" + (pt.x + 3) + "," + (pt.y - 3) + " L" + (pt.x - 3) + "," + (pt.y + 3) }, "failx"),
     );
-    diagram.layer.append(g);
+    v.layer.append(g);
     setTimeout(() => g.remove(), 8000);
   }
 
@@ -388,8 +518,8 @@
     const fresh = res.events.slice().reverse();
     let delay = 0;
     for (const e of fresh) {
-      if (e.outcome === "sent") { sendDot(e.provider, delay); delay += 180; }
-      else if (e.outcome === "failed") failMark(e.provider);
+      if (e.outcome === "sent") { sendDot(e, delay); delay += 180; }
+      else if (e.outcome === "failed") failMark(e);
     }
     recent = res.events.concat(recent).slice(0, 50);
     renderEvents();
@@ -681,7 +811,7 @@
       $("login").hidden = true;
       $("app").hidden = false;
       $("error").hidden = true;
-      renderDiagram(state.routes);
+      renderVisors(state.routes);
       const sig = JSON.stringify([state.writable, state.reason, state.warnings, state.routes.map((r) => [r.route, r.strategy,
         r.providers.map((p) => [p.name, p.paused, provState(p), p.limits, p.weight, p.capabilities, p.secrets])])]);
       const typing = document.activeElement && $("routes").contains(document.activeElement) && document.activeElement.tagName !== "BUTTON";
@@ -718,7 +848,7 @@
   let resizeTimer;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { if (state) renderDiagram(state.routes); }, 200);
+    resizeTimer = setTimeout(() => { if (state) renderVisors(state.routes); }, 200);
   });
 
   $("loginForm").addEventListener("submit", (ev) => {

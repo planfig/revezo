@@ -84,15 +84,19 @@ Open `http://localhost:8787/dashboard` and paste your `REVEZO_API_KEY`. The key 
 in that browser tab. The page is in English or Portuguese, following the browser language,
 and works on phones.
 
-**Live view.** A diagram of *Clients → Hub → providers*, grouped by route, refreshed every
-3 seconds:
+**Live view.** One dark "screen" per sector, stacked so you scroll down through them:
+e-mail, SMS, WhatsApp, AI (LLM), scraping, social posting and web search (plus any other
+kind you add). Chips at the top jump to each sector. In each screen, the sector's glowing
+core links to one card per route; click a card to fan its providers out on an arc.
+Everything refreshes every 3 seconds. Sectors without a plugin yet show as "coming soon".
 
 - Each wire's colour is the provider's state: green free, orange at 80% or more of a limit,
   red full or paused after errors, grey (dashed) paused by you.
 - The thicker the wire, the more it sent today.
-- A dot runs along the wire for every message sent; a red ✕ appears on it when an attempt fails.
+- A dot runs core → route → provider for every call sent; a red ✕ appears on the wire when an attempt fails.
+- The ring of ticks around the core grows when the sector is busy.
   With "reduce motion" turned on in the system, dots appear without moving.
-- Each box shows used / limit for today and this month, and "paused until …" when paused.
+- Each provider shows used / limit for today and a five-step usage bar in its state colour.
 
 **Managing APIs.** Below the diagram you can add a provider (the form lists the available
 types, their fields and the free plan limits), change limits and weight, move providers up
@@ -112,7 +116,7 @@ finish with the old ones.
   per route.
 
 To try it without any real account: `npm run demo` starts a server with fake providers
-and made-up traffic at `http://127.0.0.1:8788/dashboard` (the key is printed in the terminal).
+in every sector and made-up traffic at `http://127.0.0.1:8788/dashboard` (the key is printed in the terminal).
 Nothing is sent anywhere.
 
 ### Management API
