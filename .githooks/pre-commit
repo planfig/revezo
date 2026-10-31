@@ -1,0 +1,5 @@
+#!/bin/sh
+node scripts/check-secrets.mjs --staged || {
+  echo "Commit blocked: possible secret or private word found (see above)."
+  exit 1
+}

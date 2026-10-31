@@ -1,0 +1,39 @@
+{
+  "name": "revezo",
+  "version": "0.1.0",
+  "description": "Open source hub that routes API calls across several providers, tracking free quotas and failing over when one runs out.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/main.ts",
+    "dev": "node --watch --env-file-if-exists=.env src/main.ts",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "prepare": "git config core.hooksPath .githooks || true"
+  },
+  "keywords": [
+    "api",
+    "router",
+    "failover",
+    "quota",
+    "email",
+    "llm",
+    "gateway"
+  ],
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "hono": "^4.13.14",
+    "nodemailer": "^10.3.1",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/nodemailer": "^8.0.2",
+    "typescript": "^7.0.2"
+  }
+}

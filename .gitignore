@@ -1,0 +1,16 @@
+node_modules/
+# secrets and personal config never go to git
+.env
+.env.*
+!.env.example
+*.local.*
+revezo.config.yaml
+.secrets-denylist
+# runtime data
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+logs/
+*.log

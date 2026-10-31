@@ -1,0 +1,84 @@
+/** How a provider failure should be handled by the router. */
+export type ErrorKind =
+  | "quota" // free quota used up: skip this provider until its counter resets
+  | "rate_limit" // too many requests right now: skip for a short while
+  | "temporary" // network or 5xx: retry, then move on
+  | "permanent" // the request itself is bad (invalid address...): stop, do not try others
+  | "auth"; // bad or revoked credentials: skip this provider
+
+/** What one call consumes from a provider's quota, e.g. 3 e-mails or 1200 tokens. */
+export interface Cost {
+  unit: string;
+  amount: number;
+}
+
+export interface SendContext {
+  attempt: number;
+  signal?: AbortSignal;
+}
+
+/** A plugin that talks to one provider of one kind of API. */
+export interface Adapter<Req = unknown, Res = unknown> {
+  /** Provider type, e.g. "brevo". */
+  readonly id: string;
+  /** API kind, e.g. "email", "llm", "social", "sms". */
+  readonly kind: string;
+  /** Free-form flags the router can filter on, e.g. { allowsMarketing: true }. */
+  readonly capabilities: Record<string, unknown>;
+  cost(req: Req): Cost;
+  send(req: Req, ctx: SendContext): Promise<Res>;
+  classifyError(err: unknown): ErrorKind;
+}
+
+export const WINDOWS = ["minute", "hour", "day", "month"] as const;
+export type Window = (typeof WINDOWS)[number];
+
+/** Maximum cost units per time window. Missing windows are unlimited. */
+export interface Limits {
+  perMinute?: number;
+  perHour?: number;
+  perDay?: number;
+  perMonth?: number;
+}
+
+export type Usage = Record<Window, number>;
+
+export type Strategy = "priority" | "weighted" | "least-used";
+
+export interface ProviderEntry {
+  /** Unique name inside the hub, used as the quota key. */
+  name: string;
+  adapter: Adapter;
+  limits: Limits;
+  weight: number;
+}
+
+export interface Route {
+  name: string;
+  kind: string;
+  strategy: Strategy;
+  providers: ProviderEntry[];
+  /** Same-provider retries for temporary errors. */
+  maxAttempts: number;
+}
+
+export type AttemptOutcome =
+  | "sent"
+  | "skipped_full"
+  | "skipped_blocked"
+  | "skipped_capability"
+  | "failed";
+
+export interface Attempt {
+  provider: string;
+  outcome: AttemptOutcome;
+  kind?: ErrorKind;
+  message?: string;
+}
+
+export interface SendResult<Res = unknown> {
+  route: string;
+  provider: string;
+  result: Res;
+  attempts: Attempt[];
+}

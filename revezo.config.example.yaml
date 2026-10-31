@@ -1,0 +1,34 @@
+# Copy to revezo.config.yaml (ignored by git) and adjust.
+# Credentials always come from environment variables: ${NAME}.
+
+server:
+  port: 8787
+
+storage:
+  sqlite: ./data/revezo.db   # remove this line to keep counters in memory only
+
+timezone: UTC                # when daily/monthly counters reset
+
+defaults:
+  email: email-marketing     # route used by POST /v1/email/send when none is given
+
+routes:
+  email-marketing:
+    kind: email
+    strategy: priority       # priority | weighted | least-used
+    providers:
+      - use: brevo
+        options: { apiKey: "${BREVO_API_KEY}" }
+        limits: { perDay: 300 }
+      - use: mailjet
+        options: { apiKey: "${MAILJET_API_KEY}", apiSecret: "${MAILJET_API_SECRET}" }
+        limits: { perDay: 200, perMonth: 6000 }
+      - use: smtp
+        name: smtp-backup
+        capabilities: { allowsMarketing: false }
+        options:
+          host: "${SMTP_HOST}"
+          port: "${SMTP_PORT}"
+          user: "${SMTP_USER}"
+          pass: "${SMTP_PASS}"
+        limits: { perDay: 100 }
