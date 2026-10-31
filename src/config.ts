@@ -8,7 +8,7 @@ import { getPlugin, type PluginContext } from "./core/registry.ts";
 import type { Limits, ProviderEntry, Route, Strategy } from "./core/types.ts";
 
 export interface RevezoConfig {
-  server: { port: number };
+  server: { port: number; host: string };
   timezone: string;
   defaults: Record<string, string>;
   hub: Hub;
@@ -78,7 +78,11 @@ export function buildConfig(raw: unknown, opts: BuildOptions = {}): RevezoConfig
   for (const [kind, routeName] of Object.entries(defaults)) {
     if (hub.route(routeName)?.kind !== kind) throw new ConfigError(`defaults.${kind} points to "${routeName}", which is not a ${kind} route`);
   }
-  return { server: { port: Number(cfg.server?.port ?? 8787) }, timezone, defaults, hub };
+  const port = Number(env.PORT ?? cfg.server?.port ?? 8787);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new ConfigError("server.port must be a number between 1 and 65535");
+  // Local only by default; Docker sets HOST=0.0.0.0.
+  const host = String(env.HOST ?? cfg.server?.host ?? "127.0.0.1");
+  return { server: { port, host }, timezone, defaults, hub };
 }
 
 function buildRoute(

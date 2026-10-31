@@ -3,6 +3,7 @@
 
 server:
   port: 8787
+  host: 127.0.0.1          # 0.0.0.0 to accept other machines (always with REVEZO_API_KEY)
 
 storage:
   sqlite: ./data/revezo.db   # remove this line to keep counters in memory only

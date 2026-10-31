@@ -53,6 +53,8 @@ export function classifyHttp(status: number, body = ""): ErrorKind {
   if (status === 402) return "quota";
   if (status === 403) return quotaWords.test(body) ? "quota" : "auth";
   if (status === 408 || status >= 500) return "temporary";
+  // A 400 about the sender or domain is this provider's setup, not the message: try the next one.
+  if (/sender|from address|not (verified|validated)|unauthori[sz]ed/i.test(body)) return "auth";
   return "permanent";
 }
 

@@ -7,7 +7,7 @@ or fails, it moves to the next one.
 The first plugin family is **e-mail** (Brevo, Mailjet, any SMTP server). The core knows
 nothing about e-mail, so the same hub is meant for LLM APIs, social posting, SMS and more.
 
-> Status: early MVP (v0.1). E-mail routing works; suppression lists, queueing and
+> Status: early MVP (v0.2). E-mail routing works; suppression lists, queueing and
 > more provider types are on the [roadmap](#roadmap).
 
 ## What it does
@@ -63,7 +63,22 @@ Answer: `200` with the provider that sent it, `400` invalid message, `422` rejec
 reason every provider would share (e.g. bad address), `503` every provider full or failing.
 Each answer lists the attempts made.
 
-`GET /v1/quota` shows usage, limits and pauses for every provider. `GET /health` needs no key.
+`GET /v1/quota` shows usage, limits and pauses for every provider, `GET /v1/events` the
+latest attempts. `GET /health` needs no key.
+
+### Avoiding double sends
+
+If your client retries after a timeout, send an `Idempotency-Key` header (8–128 letters,
+digits, `_ . : -`). A repeat with the same key and message gets the first answer instead of
+a second e-mail; the same key with a different message gets `409`. Keys are remembered in
+memory for 24 hours.
+
+## Dashboard
+
+Open `http://localhost:8787/dashboard` and paste your `REVEZO_API_KEY`. It shows, for each
+route, how much of each provider's quota is used today and this month, which providers are
+paused and until when, and the latest attempts. The key stays only in that browser tab.
+The page is in English or Portuguese, following the browser language.
 
 ## Configuration
 
@@ -72,6 +87,8 @@ See [revezo.config.example.yaml](revezo.config.example.yaml). Credentials are wr
 
 | Field | Meaning |
 |---|---|
+| `server.host` | `127.0.0.1` (default, this machine only) or `0.0.0.0`. Env `HOST` overrides it; the Docker image uses `0.0.0.0`. |
+| `server.port` | Default `8787`. Env `PORT` overrides it. |
 | `timezone` | When daily and monthly counters reset (default `UTC`). |
 | `storage.sqlite` | Path of the counters database. Omit to keep counters in memory. |
 | `routes.<name>.kind` | API kind, e.g. `email`. |

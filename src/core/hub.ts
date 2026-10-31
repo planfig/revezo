@@ -192,7 +192,10 @@ function backoff(attempt: number): number {
   return Math.min(10_000, 500 * 2 ** (attempt - 1));
 }
 
-function shortMessage(err: unknown): string {
-  const text = err instanceof Error ? err.message : String(err);
+/** Provider error text, shortened and with e-mail addresses and phone numbers removed (it ends up in logs). */
+export function shortMessage(err: unknown): string {
+  const text = (err instanceof Error ? err.message : String(err))
+    .replace(/[^\s@"'<>(),;:]+@[^\s@"'<>(),;:]+\.[A-Za-z]{2,}/g, "[email]")
+    .replace(/\+?\d[\d\s().-]{7,}\d/g, "[number]");
   return text.length > 200 ? `${text.slice(0, 200)}…` : text;
 }

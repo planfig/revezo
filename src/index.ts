@@ -7,3 +7,5 @@ export { registerPlugin, getPlugin, type Plugin, type PluginContext } from "./co
 export { buildConfig, loadConfigFile } from "./config.ts";
 export { createServer } from "./server.ts";
 export * from "./plugins/email/index.ts";
+export { EventLog, type HubEvent } from "./core/events.ts";
+export { IdempotencyCache } from "./idempotency.ts";
