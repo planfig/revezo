@@ -169,10 +169,6 @@ finish with the old ones.
 - The same rules as the config apply: unique provider names and one account per provider
   per route.
 
-To try it without any real account: `npm run demo` starts a server with fake providers
-in every sector and made-up traffic at `http://127.0.0.1:8788/dashboard` (the key is printed in the terminal).
-Nothing is sent anywhere.
-
 ### Management API
 
 All need `Authorization: Bearer $REVEZO_API_KEY`; bodies are JSON, at most 16 KB.
@@ -184,7 +180,7 @@ All need `Authorization: Bearer $REVEZO_API_KEY`; bodies are JSON, at most 16 KB
 | `PATCH /v1/admin/routes/:name` | `{ "strategy" }` and/or `{ "order": [provider names] }`. |
 | `DELETE /v1/admin/routes/:name` | Removes an empty route created on the dashboard. |
 | `POST /v1/admin/providers` | `{ "route", "use", "name", "options", "limits", "weight", "capabilities" }`. |
-| `PATCH /v1/admin/providers/:name` | `{ "paused" }`, and for dashboard providers `{ "limits", "weight", "capabilities" }`. |
+| `PATCH /v1/admin/providers/:name` | `{ "paused" }`, and for dashboard providers `{ "options", "limits", "weight", "capabilities" }`. In `options` a secret sent empty keeps the saved one, so a new API key can be set without retyping the rest; a new key also lifts a pause caused by the old one. |
 | `DELETE /v1/admin/providers/:name` | Removes a provider added on the dashboard. |
 
 ## Configuration

@@ -198,7 +198,7 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
     return c.json(state);
   });
 
-  const change = (fn: (body: unknown, name: string) => void, withBody = true) =>
+  const change = (fn: (body: unknown, name: string) => void | Promise<void>, withBody = true) =>
     async (c: Context<Env>) => {
       if (apiKey === undefined) return c.json({ error: "read_only", reason: "no_api_key" }, 409);
       let body: unknown;
@@ -210,7 +210,7 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
         }
       }
       try {
-        fn(body, c.req.param("name") ?? "");
+        await fn(body, c.req.param("name") ?? "");
       } catch (err) {
         if (err instanceof ManageError) return c.json({ error: err.code, message: err.message }, err.status);
         throw err;
@@ -266,7 +266,7 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
           return { status: 422, body: { error: "rejected", message: err.message, attempts: err.attempts } };
         }
         if (err instanceof NoProviderAvailableError) {
-          return { status: 503, body: { error: "no_provider_available", attempts: err.attempts } };
+          return { status: 503, body: { error: "no_provider_available", message: noProviderMessage(route.providers.length), attempts: err.attempts } };
         }
         throw err;
       }
@@ -335,7 +335,7 @@ export function createServer({ hub, defaults, apiKey, events, idempotency = new 
         return c.json({ error: { message: err.message, type: "invalid_request_error" }, revezo: { attempts: err.attempts } }, 422);
       }
       if (err instanceof NoProviderAvailableError) {
-        return c.json({ error: { message: "every provider of the route is full, paused or failing", type: "no_provider_available" }, revezo: { attempts: err.attempts } }, 503);
+        return c.json({ error: { message: noProviderMessage(route.providers.length), type: "no_provider_available" }, revezo: { attempts: err.attempts } }, 503);
       }
       throw err;
     }
@@ -358,6 +358,10 @@ function clientIp(c: Context<Env>): string {
   } catch {
     return "local";
   }
+}
+
+function noProviderMessage(providers: number): string {
+  return providers ? "every provider of the route is full, paused or failing" : "this route has no provider yet; add one on the dashboard";
 }
 
 /** Comparing fixed-length digests keeps the check constant-time regardless of key length. */

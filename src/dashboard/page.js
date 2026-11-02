@@ -38,6 +38,7 @@
       priority: "priority", weighted: "by weight", "least-used": "least used", strategy: "Strategy", kind: "Kind",
       up: "Move up", down: "Move down", pause: "Pause", resume: "Resume", edit: "Edit", remove: "Remove", save: "Save", cancel: "Cancel",
       removeRoute: "Remove route", weight: "Weight", perMinute: "Per minute", perHour: "Per hour", perDay: "Per day", perMonth: "Per month",
+      keepKey: "leave empty to keep the saved one", changeKeyHelp: "To change a key, type the new one; empty fields keep the saved key.",
       marketing: "Allows marketing e-mails", keysSaved: "keys", saved: "saved", missing: "missing",
       confirmRemove: "Remove {name}? Its saved keys are deleted.", confirmRemoveRoute: "Remove route {name}?",
       addTitle: "Add an API", addHelp: "Keys are stored encrypted and never shown again. The hub starts using the new API on the next call.",
@@ -81,6 +82,7 @@
       priority: "prioridade", weighted: "por peso", "least-used": "menos usado", strategy: "Estratégia", kind: "Tipo de API",
       up: "Subir", down: "Descer", pause: "Pausar", resume: "Retomar", edit: "Editar", remove: "Remover", save: "Salvar", cancel: "Cancelar",
       removeRoute: "Remover rota", weight: "Peso", perMinute: "Por minuto", perHour: "Por hora", perDay: "Por dia", perMonth: "Por mês",
+      keepKey: "deixe vazio para manter a atual", changeKeyHelp: "Para trocar uma chave, escreva a nova; campo vazio mantém a chave guardada.",
       marketing: "Permite e-mails de marketing", keysSaved: "chaves", saved: "guardada", missing: "em falta",
       confirmRemove: "Remover {name}? As chaves guardadas são apagadas.", confirmRemoveRoute: "Remover a rota {name}?",
       addTitle: "Adicionar API", addHelp: "As chaves ficam guardadas cifradas e nunca mais aparecem. O hub passa a usar a nova API já na próxima chamada.",
@@ -644,7 +646,9 @@
     const secretNames = Object.keys(p.secrets || {});
     let line = limitsLine(p);
     if (p.meters && p.meters.tokens) line += " · " + num(p.meters.tokens.day) + " " + t("tokensToday");
-    if (secretNames.length) line += " · " + t("keysSaved") + ": " + secretNames.map((k) => k + " " + (p.secrets[k] ? "✓ " + t("saved") : "✗ " + t("missing"))).join(", ");
+    const plug = state.plugins.find((x) => x.kind === r.kind && x.id === p.type);
+    const fieldLabel = (k) => { const f = plug && plug.fields.find((x) => x.name === k); return f ? t(f.label) : k; };
+    if (secretNames.length) line += " · " + t("keysSaved") + ": " + secretNames.map((k) => fieldLabel(k) + " " + (p.secrets[k] ? "✓ " + t("saved") : "✗ " + t("missing"))).join(", ");
     info.append(el("div", "muted", line));
     row.append(info);
 
@@ -677,7 +681,7 @@
       }, "danger");
     }
     row.append(actions);
-    if (editing === p.name && writable) row.append(editForm(p));
+    if (editing === p.name && writable) row.append(editForm(r, p));
     return row;
   }
 
@@ -702,8 +706,38 @@
     return limits;
   }
 
-  function editForm(p) {
+  function editForm(r, p) {
     const form = el("form", "edit");
+    form.autocomplete = "off";
+    const plugin = state.plugins.find((x) => x.kind === r.kind && x.id === p.type);
+    const optionInputs = [];
+    if (plugin) {
+      for (const f of plugin.fields) {
+        const input = el("input");
+        input.dataset.field = f.name;
+        input.dataset.kind = f.type;
+        const current = (p.settings || {})[f.name];
+        if (f.type === "boolean") {
+          input.type = "checkbox";
+          input.checked = current === true;
+          const label = el("label", "check");
+          label.append(input, el("span", "", t(f.label)));
+          form.append(label);
+        } else {
+          input.type = f.secret ? "password" : f.type === "number" ? "number" : "text";
+          if (f.secret) { input.autocomplete = "new-password"; input.placeholder = t("keepKey"); }
+          else if (current !== undefined) input.value = String(current);
+          else if (f.placeholder) input.placeholder = f.placeholder;
+          input.maxLength = 1000;
+          if (f.required && !f.secret) input.required = true;
+          const label = el("label");
+          label.append(el("span", "", t(f.label) + (f.required && !f.secret ? " *" : "")), input);
+          form.append(label);
+        }
+        optionInputs.push(input);
+      }
+      if (plugin.fields.some((f) => f.secret)) form.append(el("p", "muted", t("changeKeyHelp")));
+    }
     const inputs = {};
     for (const key of ["perDay", "perMonth", "perHour", "perMinute"]) {
       const f = numberInput(key, p.limits[key]);
@@ -712,12 +746,14 @@
     }
     const w = numberInput("weight", p.weight, { min: "0.1", max: "1000", step: "0.1" });
     form.append(w.label);
-    const mk = el("label", "check");
     const box = el("input");
     box.type = "checkbox";
     box.checked = p.capabilities && p.capabilities.allowsMarketing === true;
-    mk.append(box, el("span", "", t("marketing")));
-    form.append(mk);
+    if (r.kind === "email") {
+      const mk = el("label", "check");
+      mk.append(box, el("span", "", t("marketing")));
+      form.append(mk);
+    }
     const save = el("button", "", t("save"));
     save.type = "submit";
     const cancel = el("button", "ghost", t("cancel"));
@@ -726,9 +762,16 @@
     form.append(save, cancel);
     form.addEventListener("submit", (ev) => {
       ev.preventDefault();
-      act("PATCH", "/v1/admin/providers/" + encodeURIComponent(p.name), {
-        limits: readLimits(inputs), weight: Number(w.input.value), capabilities: { allowsMarketing: box.checked },
-      }, "manageMsg");
+      const options = {};
+      for (const input of optionInputs) {
+        const k = input.dataset.field;
+        if (input.dataset.kind === "boolean") options[k] = input.checked;
+        else if (input.value.trim() === "") options[k] = "";
+        else options[k] = input.dataset.kind === "number" ? Number(input.value) : input.value.trim();
+      }
+      const body = { options, limits: readLimits(inputs), weight: Number(w.input.value) };
+      if (r.kind === "email") body.capabilities = { allowsMarketing: box.checked };
+      act("PATCH", "/v1/admin/providers/" + encodeURIComponent(p.name), body, "manageMsg");
     });
     return form;
   }
@@ -861,6 +904,7 @@
     $("addPerMonth").value = s.perMonth !== undefined ? String(s.perMonth) : "";
     $("addPerHour").value = s.perHour !== undefined ? String(s.perHour) : "";
     $("addMarketing").checked = plugin.defaultCapabilities.allowsMarketing === true;
+    $("addMarketing").parentElement.hidden = plugin.kind !== "email";
     $("addName").placeholder = plugin.id;
   }
 
@@ -891,7 +935,8 @@
     const name = $("addName").value.trim() || freeName($("addType").value);
     const ok = await act("POST", "/v1/admin/providers", {
       route: $("addRoute").value, use: $("addType").value, name, options, limits,
-      weight: Number($("addWeight").value) || 1, capabilities: { allowsMarketing: $("addMarketing").checked },
+      weight: Number($("addWeight").value) || 1,
+      ...($("addMarketing").parentElement.hidden ? {} : { capabilities: { allowsMarketing: $("addMarketing").checked } }),
     }, "addMsg", t("added", { name }));
     if (ok) {
       $("addName").value = "";
@@ -916,8 +961,8 @@
       $("app").hidden = false;
       $("error").hidden = true;
       renderVisors(state.routes);
-      const sig = JSON.stringify([state.writable, state.reason, state.warnings, state.routes.map((r) => [r.route, r.strategy,
-        r.providers.map((p) => [p.name, p.paused, provState(p), p.limits, p.weight, p.capabilities, p.secrets])])]);
+      const sig = JSON.stringify([state.writable, state.reason, state.warnings, state.routes.map((r) => [r.route, r.strategy, r.cacheSeconds,
+        r.providers.map((p) => [p.name, p.paused, provState(p), p.limits, p.weight, p.capabilities, p.secrets, p.settings])])]);
       const typing = document.activeElement && $("routes").contains(document.activeElement) && document.activeElement.tagName !== "BUTTON";
       if (sig !== manageSig && !typing && editing === null) { manageSig = sig; renderManage(); }
       syncAddForms();

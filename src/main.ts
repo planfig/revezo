@@ -57,7 +57,11 @@ try {
   });
   const stop = () => {
     log("stopping");
-    server.close(() => process.exit(0));
+    server.close(() => {
+      manager.close();
+      events.close();
+      process.exit(0);
+    });
     setTimeout(() => process.exit(0), 10_000).unref();
   };
   process.on("SIGINT", stop);

@@ -43,6 +43,8 @@ interface ProviderSpec {
   adapter: Adapter;
   /** Which secret options have a value. The values themselves stay inside the adapter. */
   secrets: Record<string, boolean>;
+  /** Values of the options that are not secret (model, host...), shown on the dashboard. */
+  settings: Record<string, unknown>;
   /** Encrypted options, kept to rewrite the row when limits change. */
   sealed?: string;
 }
@@ -108,6 +110,7 @@ export class Manager implements CredentialStore {
           capabilities: null,
           adapter: p.adapter,
           secrets: {},
+          settings: {},
         })),
       });
     }
@@ -198,7 +201,10 @@ export class Manager implements CredentialStore {
           kind: spec.kind,
           source: spec.source,
           isDefault: this.#defaults[spec.kind] === spec.name,
-          providers: (live?.providers ?? []).map((p) => ({ ...p, secrets: this.#provider(p.name)?.spec.secrets ?? {} })),
+          providers: (live?.providers ?? []).map((p) => {
+          const spec = this.#provider(p.name)?.spec;
+          return { ...p, secrets: spec?.secrets ?? {}, settings: spec?.settings ?? {} };
+        }),
         };
       }),
     };
@@ -332,27 +338,44 @@ export class Manager implements CredentialStore {
     const adapter = this.#create(plugin, options, capabilities);
     const sealed = this.#box!.seal(JSON.stringify(options), aad(name));
     this.#store!.putProvider({ name, route: route.name, use, limits, weight, capabilities, options: sealed });
-    const secrets = Object.fromEntries(plugin.fields.filter((f) => f.secret).map((f) => [f.name, options[f.name] !== undefined]));
-    route.providers = [...route.providers, { name, use, source: "panel", limits, weight, capabilities, adapter, secrets, sealed }];
+    route.providers = [...route.providers, { name, use, source: "panel", limits, weight, capabilities, adapter, ...describe(plugin, options), sealed }];
     this.#apply();
   }
 
-  /** Limits, weight and capabilities can change on providers added here; any provider can be paused. */
-  updateProvider(name: string, input: unknown): void {
+  /**
+   * Options (e.g. a new API key), limits, weight and capabilities can change on providers added
+   * here; any provider can be paused. A secret option sent empty keeps its saved value.
+   */
+  async updateProvider(name: string, input: unknown): Promise<void> {
     this.#assertWritable();
     const { route, spec } = this.#provider(name) ?? notFound("provider", name);
-    const body = object(input, ["limits", "weight", "capabilities", "paused"]);
-    const edits = body.limits !== undefined || body.weight !== undefined || body.capabilities !== undefined;
+    const body = object(input, ["options", "limits", "weight", "capabilities", "paused"]);
+    const edits = body.options !== undefined || body.limits !== undefined || body.weight !== undefined || body.capabilities !== undefined;
     if (edits && spec.source === "file") {
       throw new ManageError(403, "from_file", "Providers from the config file can only be paused or moved here; change their limits in the file");
     }
     if (body.paused !== undefined && typeof body.paused !== "boolean") throw new ManageError(400, "invalid_paused", "paused must be true or false");
     const next: ProviderSpec = { ...spec };
+    const plugin = getPlugin(route.kind, spec.use);
+    if (body.options !== undefined) {
+      if (!body.options || typeof body.options !== "object" || Array.isArray(body.options)) throw new ManageError(400, "invalid_options", "options must be an object");
+      const merged = JSON.parse(this.#box!.open(spec.sealed!, aad(name))) as Record<string, unknown>;
+      for (const [k, v] of Object.entries(body.options)) {
+        const field = plugin.fields?.find((f) => f.name === k);
+        if (field?.secret && (v === "" || v === null)) continue;
+        if (v === "" || v === null) delete merged[k];
+        else merged[k] = v;
+      }
+      const options = validOptions(plugin, merged);
+      next.adapter = this.#create(plugin, options, spec.capabilities);
+      next.sealed = this.#box!.seal(JSON.stringify(options), aad(name));
+      Object.assign(next, describe(plugin, options));
+    }
     if (body.limits !== undefined) next.limits = validLimits(body.limits);
     if (body.weight !== undefined) next.weight = validWeight(body.weight);
     if (body.capabilities !== undefined) {
       next.capabilities = body.capabilities === null ? null : validCapabilities(body.capabilities);
-      next.adapter = withCapabilities(spec.adapter, next.capabilities, getPlugin(route.kind, spec.use));
+      next.adapter = withCapabilities(next.adapter, next.capabilities, plugin);
     }
     this.#store!.transaction(() => {
       if (edits) {
@@ -364,6 +387,8 @@ export class Manager implements CredentialStore {
     if (body.paused === true) this.#settings.set(`paused:${name}`, true);
     if (body.paused === false) this.#settings.delete(`paused:${name}`);
     this.#apply();
+    // A pause caused by the old key (wrong key, quota of another account) no longer applies.
+    if (body.options !== undefined) await this.#hub.unblock(name);
   }
 
   removeProvider(name: string): void {
@@ -464,7 +489,6 @@ export class Manager implements CredentialStore {
       try {
         const plugin = getPlugin(route.kind, row.use);
         const options = JSON.parse(this.#box!.open(row.options, aad(row.name))) as Record<string, unknown>;
-        const secrets = Object.fromEntries((plugin.fields ?? []).filter((f) => f.secret).map((f) => [f.name, options[f.name] !== undefined]));
         const adapter = this.#create(plugin, options, row.capabilities);
         route.providers.push({
           name: row.name,
@@ -474,7 +498,7 @@ export class Manager implements CredentialStore {
           weight: row.weight,
           capabilities: row.capabilities,
           adapter,
-          secrets,
+          ...describe(plugin, options),
           sealed: row.options,
         });
       } catch (err) {
@@ -518,6 +542,15 @@ export const appCounter = (id: string) => `app:${id}`;
 
 function notFound(what: string, name: string): never {
   throw new ManageError(404, `unknown_${what}`, `No ${what} called "${String(name).slice(0, 48)}"`);
+}
+
+/** Which secret options are set, and the values of the others. */
+function describe(plugin: Plugin, options: Record<string, unknown>) {
+  const fields = plugin.fields ?? [];
+  return {
+    secrets: Object.fromEntries(fields.filter((f) => f.secret).map((f) => [f.name, options[f.name] !== undefined])),
+    settings: Object.fromEntries(fields.filter((f) => !f.secret && options[f.name] !== undefined).map((f) => [f.name, options[f.name]])),
+  };
 }
 
 function withCapabilities(adapter: Adapter, capabilities: Record<string, boolean> | null, plugin: Plugin): Adapter {

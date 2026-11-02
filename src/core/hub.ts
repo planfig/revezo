@@ -134,6 +134,11 @@ export class Hub {
     return (await this.#store.tryReserve(name, limits, amount, this.#now(), this.#timeZone)) !== null;
   }
 
+  /** Lifts a pause set after errors, e.g. once the provider got a new API key. */
+  async unblock(name: string): Promise<void> {
+    if (await this.#store.blocked(name, this.#now())) await this.#store.block(name, new Date(0), "cleared");
+  }
+
   usageOf(name: string): Promise<Usage> {
     return this.#store.usage(name, this.#now(), this.#timeZone);
   }

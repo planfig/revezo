@@ -14,8 +14,7 @@
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc",
     "check:secrets": "node scripts/check-secrets.mjs",
-    "prepare": "git config core.hooksPath .githooks || true",
-    "demo": "node scripts/demo.ts"
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "keywords": [
     "api",
